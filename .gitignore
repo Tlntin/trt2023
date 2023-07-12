@@ -156,3 +156,4 @@ models/control_sd15_canny.pth
 */*/*.pyc
 */*/*/*.pyc
 */*/*/*/*.pyc
+*.jpg
