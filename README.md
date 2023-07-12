@@ -16,12 +16,12 @@ docker pull registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:v2
 3. 首次运行docker项目，方便拷贝代码到本地
 ```bash
 docker run --gpus all \
-    --name trt2023 \
-	-it --rm \
-	--ipc=host \
-	--ulimit memlock=-1 \
-	--ulimit stack=67108864 \
-    registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:v2
+  --name trt2023 \
+  -it --rm \
+  --ipc=host \
+  --ulimit memlock=-1 \
+  --ulimit stack=67108864 \
+  registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:v2
 ```
 4. 另开一个终端，拷贝docker中的文件到本地（建议建一个仓库）
 ```bash
@@ -37,15 +37,15 @@ rm ControlNet -r
 ```bash
 # 运行容器
 docker run --gpus all \
-    --name trt2023 \
-    -u root \
-	-d \
-	--ipc=host \
-	--ulimit memlock=-1 \
-	--restart=always \
-	--ulimit stack=67108864 \
-	-v ${PWD}:/home/player/ControlNet/ \
-    registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:v2 sleep 8640000
+  --name trt2023 \
+  -u root \
+  -d \
+  --ipc=host \
+  --ulimit memlock=-1 \
+  --restart=always \
+  --ulimit stack=67108864 \
+  -v ${PWD}:/home/player/ControlNet/ \
+  registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:v2 sleep 8640000
 
 # 在Vscode中进行远程开发
 # 打开Vscode, 选择最左侧的远程资源管理器，选择`开发容器`，然后选择`registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:v2(trt2023)`这个容器，选择在当前窗口附加即可。
@@ -55,16 +55,16 @@ docker run --gpus all \
 ```bash
 # 运行docker容器
 docker run --gpus all \
-    --name trt2023 \
-	-it \
-	-p 16785:22 \
-	-u root \
-	--ipc=host \
-	--ulimit memlock=-1 \
-	--restart=always \
-	--ulimit stack=67108864 \
-	-v ${PWD}:/home/player/ControlNet/ \
-    registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:v2 sleep 8640000
+  --name trt2023 \
+  -it \
+  -p 16785:22 \
+  -u root \
+  --ipc=host \
+  --ulimit memlock=-1 \
+  --restart=always \
+  --ulimit stack=67108864 \
+  -v ${PWD}:/home/player/ControlNet/ \
+  registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:v2 sleep 8640000
 
 # 安装openssh
 apt install openssh-server
