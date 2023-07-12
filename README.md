@@ -1,6 +1,6 @@
 ## 队伍名: 无声优化者（着）
 
-## 大赛介绍
+## 大赛介绍 | [链接](https://tianchi.aliyun.com/competition/entrance/532108/information)
 TensorRT 作为 NVIDIA 英伟达 GPU 上的 AI 推理加速库，在业界得到了广泛应用与部署。与此同时，TensorRT 开发团队也在持续提高产品的好用性：一方面让更多模型能顺利通过 ONNX 自动解析得到加速，另一方面对常见模型结构（如 MHA）的计算进行深度优化。这使得大部分模型不用经过手工优化，就能在 TensorRT 上跑起来，而且性能优秀。
 
 过去的一年，是生成式 AI（或称“AI生成内容”） 井喷的一年。大量的图像和文本被计算机批量生产出来，有的甚至能媲美专业创作者的画工与文采。可以期待，未来会有更多的生成式AI模型大放异彩。在本届比赛中，我们选择生成式AI模型作为本次大赛的主题。
@@ -109,5 +109,9 @@ echo "service ssh start" >> /opt/nvidia/nvidia_entrypoint.sh
 # 在Vscode中进行远程开发
 # 打开Vscode, 选择最左侧的远程资源管理器，选择`远程隧道（SSH)`，然后点击`+`，输入远程命令`ssh root@[容器所在输入机的ip] -p [刚刚自定义的映射端口]`，然后右键该服务，选择`在当前窗口中连接`即可。
 # 然后选择`文件`，`打开文件夹`， 最后打开`/home/player/ControlNet/`目录即可
+```
+3. 运行测评代码，用于生成图片
+```bash
+python3 compute_score.py
 ```
 
