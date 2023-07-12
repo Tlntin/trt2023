@@ -31,13 +31,14 @@ rm ControlNet -r
 ```
 
 ## 项目部署
-1. 从网盘下载.pth模型，然后放到`models`目录下。 链接: https://pan.baidu.com/s/1FVk1wYBX32gosUxopEdBbw?pwd=uxmx 提取码: uxmx 
+1. 从网盘下载.pth模型，百度网盘[链接](https://pan.baidu.com/s/1FVk1wYBX32gosUxopEdBbw?pwd=uxmx) 。也可以参考准备工作的3、4步，提取models下面的.pth文件，然后放到`models`目录下。 
 2. 正式运行docker, 顺便将本地代码覆盖docker中的代码
 - 对于使用本地GPU的用户
 ```bash
 # 运行容器
 docker run --gpus all \
     --name trt2023 \
+    -u root \
 	-d \
 	--ipc=host \
 	--ulimit memlock=-1 \
@@ -57,6 +58,7 @@ docker run --gpus all \
     --name trt2023 \
 	-it \
 	-p 16785:22 \
+	-u root \
 	--ipc=host \
 	--ulimit memlock=-1 \
 	--restart=always \
@@ -113,5 +115,26 @@ echo "service ssh start" >> /opt/nvidia/nvidia_entrypoint.sh
 3. 运行测评代码，用于生成图片
 ```bash
 python3 compute_score.py
+```
+4. 在容器中运行代码发现不用root情况下，容器没有写入项目的权限，解决办法。
+```bash
+# 在宿主机（服务器）执行下面的代码获取当前用户id以及组用户id
+id
+
+# 我获得的结果是:用户id=1000(用户名），组id=1000
+
+# 先输入下面的命令进入容器
+docker exec -it trt2023 /bin/bash
+
+# 获取当前路径
+pwd
+
+# 输出: `/home/player`， 说明用户是player
+# 然后再docker中再输入下面的命令，将docker用户的id改成和宿主机一样的，再切换到docker用户就行了。
+usermod -u 1000 player
+su player
+
+# 后续再进入容器，可以直接以player身份进入
+docker exec -it trt2023 su player
 ```
 
