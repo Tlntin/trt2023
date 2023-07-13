@@ -134,7 +134,38 @@ pwd
 usermod -u 1000 player
 su player
 
-# 后续再进入容器，可以直接以player身份进入
-docker exec -it trt2023 su player
+# 然后进入容器
+docker exec -u player -it trt2023 /bin/bash
+
+
+# 综合来看，可以将启动命令改成这样
+docker run --gpus all \
+  --name trt2023 \
+  -u root \
+  -d \
+  --ipc=host \
+  --ulimit memlock=-1 \
+  --restart=always \
+  --ulimit stack=67108864 \
+  -v ${PWD}:/home/player/ControlNet/ \
+  registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:v2 \
+  bash -c "usermod -u 1000 player && sleep 8640000"
+ 
+
+# 对于vscode远程开发容器的用户
+# 打开左侧栏`远程资源管理器`，选择`开发容器`，再第二个框框中，点击小齿轮图标，打开容器配置文件，然后再末尾加上一行"remoteUser": "player"，这样vscode就会自动用player权限去运行。1
+# 我的改完后大概是这个效果
+{
+	"workspaceFolder": "/home/player/ControlNet",
+	"extensions": [
+		"MS-CEINTL.vscode-language-pack-zh-hans",
+		"ms-python.python",
+		"ms-python.vscode-pylance"
+	],
+	"remoteUser": "player"
+}
+# 关闭重开一下vscode,再启一个终端，你就能看到效果了。
+# 此时终端长这样，可以看到是player用户
+# player@335a6e153173:~/ControlNet$ 
 ```
 
