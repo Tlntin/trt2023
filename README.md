@@ -116,7 +116,7 @@ echo "service ssh start" >> /opt/nvidia/nvidia_entrypoint.sh
 ```bash
 python3 compute_score.py
 ```
-4. 在容器中运行代码发现不用root情况下，容器没有写入项目的权限，解决办法。
+4. 在容器中运行代码发现不用root情况下，容器没有写入项目的权限（造成的原因是因为宿主机和容器用户不一样，我的宿主机是普通用户），解决办法。
 ```bash
 # 在宿主机（服务器）执行下面的代码获取当前用户id以及组用户id
 id
@@ -132,7 +132,20 @@ pwd
 # 输出: `/home/player`， 说明用户是player
 # 然后再docker中再输入下面的命令，将docker用户的id改成和宿主机一样的，再切换到docker用户就行了。
 usermod -u 1000 player
+# 创建新组
+groupadd player
+# 授权
+usermod -g player player
+# 改权限
+chown -R player:player /home/player
+# 改组id
+groupmod -g 1000 player
 su player
+
+# 在docker容器输入id看看
+uid=1000(player) gid=1000(player) groups=1000(player),27(sudo)
+
+# 可以看到player的组id已经改成了1000了
 
 # 然后进入容器
 docker exec -u player -it trt2023 /bin/bash
@@ -149,7 +162,7 @@ docker run --gpus all \
   --ulimit stack=67108864 \
   -v ${PWD}:/home/player/ControlNet/ \
   registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:v2 \
-  bash -c "usermod -u 1000 player && sleep 8640000"
+  bash -c "usermod -u 1000 player && groupadd player && usermod -g player player && chown -R player:player /home/player && groupmod -g 1000 player && sleep 8640000"
  
 
 # 对于vscode远程开发容器的用户
