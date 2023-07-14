@@ -32,7 +32,7 @@ rm ControlNet -r
 
 ## 项目部署
 1. 从网盘下载.pth模型，百度网盘[链接](https://pan.baidu.com/s/1FVk1wYBX32gosUxopEdBbw?pwd=uxmx) 。也可以参考准备工作的3、4步，提取models下面的.pth文件，然后放到`models`目录下。 
-2. 正式运行docker, 顺便将本地代码覆盖docker中的代码
+2. 正式运行docker, 顺便将本地代码目录覆盖docker中的代码（也更加方便文件拷贝）
 - 对于使用本地GPU的用户
 ```bash
 # 运行容器
