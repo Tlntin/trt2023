@@ -140,30 +140,20 @@ usermod -g player player
 chown -R player:player /home/player
 # 改组id
 groupmod -g 1000 player
+
+# 切换到player用户
 su player
 
 # 在docker容器输入id看看
+id
+
+# 结果如下：
 uid=1000(player) gid=1000(player) groups=1000(player),27(sudo)
 
 # 可以看到player的组id已经改成了1000了
 
-# 然后进入容器
+# 以后可以使用player用户权限进入容器
 docker exec -u player -it trt2023 /bin/bash
-
-
-# 综合来看，可以将启动命令改成这样
-docker run --gpus all \
-  --name trt2023 \
-  -u root \
-  -d \
-  --ipc=host \
-  --ulimit memlock=-1 \
-  --restart=always \
-  --ulimit stack=67108864 \
-  -v ${PWD}:/home/player/ControlNet/ \
-  registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:v2 \
-  bash -c "usermod -u 1000 player && groupadd player && usermod -g player player && chown -R player:player /home/player && groupmod -g 1000 player && sleep 8640000"
- 
 
 # 对于vscode远程开发容器的用户
 # 打开左侧栏`远程资源管理器`，选择`开发容器`，再第二个框框中，点击小齿轮图标，打开容器配置文件，然后再末尾加上一行"remoteUser": "player"，这样vscode就会自动用player权限去运行。1
