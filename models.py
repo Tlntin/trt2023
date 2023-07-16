@@ -26,6 +26,7 @@ import torch
 from transformers import CLIPTextModel, CLIPTokenizer
 from cuda import cudart
 import onnx
+import types
 
 class Optimizer():
     def __init__(
@@ -170,19 +171,42 @@ class CLIP(BaseModel):
         super(CLIP, self).__init__(device=device, verbose=verbose, max_batch_size=max_batch_size, embedding_dim=embedding_dim)
         self.name = "CLIP"
         self.model = model
+        self.tokenizer = None
+        self.modules = None
     
     # def pre_forward(self, text):
-    #     batch_encoding = self.tokenizer(text, truncation=True, max_length=self.max_length, return_length=True,
+    #     batch_encoding = self.tokenizer(
+    #         text, truncation=True, max_length=self.max_length, return_length=True,
     #                                     return_overflowing_tokens=False, padding="max_length", return_tensors="pt")
     #     tokens = batch_encoding["input_ids"].to(self.device)
     #     return tokens
 
+    # def forward(self, input_ids: torch.Tensor):
+    #     outputs = self.transformer(
+    #         input_ids=input_ids,
+    #         output_hidden_states=bool(self.layer=="hidden")
+    #     )
+    #     return outputs.last_hidden_state
+    
+    # def __call__(self, input_ids: torch.Tensor):
+    #     return self.forward(input_ids)
+
     def get_model(self):
-        def forward(self, tokens: torch.Tensor):
-            outputs = self.transformer(input_ids=tokens, output_hidden_states=self.layer=="hidden")
+        def forward(self, input_ids: torch.Tensor):
+            outputs = self.transformer(
+                input_ids=input_ids,
+                output_hidden_states=bool(self.layer=="hidden")
+            )
             return outputs.last_hidden_state
-        self.model.forward = forward
+        self.model.forward = types.MethodType(forward, self.model)
         return self.model
+        # --- or you can do this ---
+        # self.tokenizer = self.model.tokenizer 
+        # self.transformer = self.model.transformer
+        # self.modules = self.model.modules
+        # self.state_dict = self.model.state_dict
+        # self.layer = self.model.layer
+        # return self
 
     def get_input_names(self):
         return ['input_ids']
@@ -212,8 +236,14 @@ class CLIP(BaseModel):
 
     def get_sample_input(self, batch_size, image_height, image_width):
         self.check_dims(batch_size, image_height, image_width)
-        return torch.zeros(batch_size, self.text_maxlen, dtype=torch.int32, device=self.device)
-
+        return (
+            torch.arange(
+                0,
+                self.text_maxlen,
+                dtype=torch.int32,
+                device=self.device
+            ).unsqueeze(0).repeat(batch_size, 1),
+        )
     def optimize(self, onnx_graph):
         opt = Optimizer(onnx_graph, verbose=self.verbose)
         opt.info(self.name + ': original')
@@ -777,11 +807,13 @@ class VAE(BaseModel):
 
     def get_sample_input(self, batch_size, image_height, image_width):
         latent_height, latent_width = self.check_dims(batch_size, image_height, image_width)
-        return torch.randn(
-            batch_size,
-            4,
-            latent_height,
-            latent_width,
-            dtype=torch.float32,
-            device=self.device
+        return (
+            torch.randn(
+                batch_size,
+                4,
+                latent_height,
+                latent_width,
+                dtype=torch.float32,
+                device=self.device
+            ),
         )

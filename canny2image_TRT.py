@@ -284,7 +284,8 @@ class hackathon():
                                 opt_image_height,
                                 opt_image_width
                             )
-                            torch.onnx.export(model,
+                            torch.onnx.export(
+                                model,
                                 inputs,
                                 onnx_path,
                                 export_params=True,
