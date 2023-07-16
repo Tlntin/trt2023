@@ -451,6 +451,7 @@ if __name__ == "__main__":
     if not os.path.exists(onnx_dir1):
         os.makedirs(onnx_dir1)
     onnx_opset1 = 17
+    time_cache_path1 = os.path.join(output_dir1, "time_cache_fp16.cache")
     hk.load_engines(
         engine_dir=engine_dir1,
         onnx_dir=onnx_dir1,
@@ -458,5 +459,5 @@ if __name__ == "__main__":
         opt_batch_size=8,
         opt_image_height=256,
         opt_image_width=384,
-        timing_cache="time_cache_fp16.cache"
+        timing_cache=time_cache_path1
     )
