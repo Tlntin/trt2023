@@ -237,13 +237,19 @@ class UNet(BaseModel):
         fp16=False,
         device='cuda',
         verbose=True,
-        path="",
         max_batch_size=16,
         embedding_dim=768,
         text_maxlen=77,
         unet_dim=4
     ):
-        super(UNet, self).__init__(fp16=fp16, device=device, verbose=verbose, path=path, max_batch_size=max_batch_size, embedding_dim=embedding_dim, text_maxlen=text_maxlen)
+        super(UNet, self).__init__(
+            fp16=fp16,
+            device=device,
+            verbose=verbose,
+            max_batch_size=max_batch_size,
+            embedding_dim=embedding_dim,
+            text_maxlen=text_maxlen
+        )
         self.unet_dim = unet_dim
         self.name = "UNet"
         self.model = model
@@ -255,16 +261,47 @@ class UNet(BaseModel):
         return self.model
 
     def get_input_names(self):
-        return ['sample', 'timestep', 'encoder_hidden_states']
+        return [
+            "sample",
+            "timestep",
+            "context",
+            "contorl_0",
+            "contorl_1",
+            "contorl_2",
+            "contorl_3",
+            "contorl_4",
+            "contorl_5",
+            "contorl_6",
+            "contorl_7",
+            "contorl_8",
+            "contorl_9",
+            "contorl_10",
+            "contorl_11",
+            "contorl_12",
+        ]
 
     def get_output_names(self):
        return ['latent']
 
     def get_dynamic_axes(self):
         return {
-            'sample': {0: '2B', 2: 'H', 3: 'W'},
-            'encoder_hidden_states': {0: '2B'},
-            'latent': {0: '2B', 2: 'H', 3: 'W'}
+            'sample': {0: 'B', 2: '8H', 3: '8W'},
+            "timestep": {0: 'B'},
+            "context": {0: 'B'},
+            "contorl_0": {0: "B", 2: "8H", 3: "8W"},
+            "contorl_1": {0: "B", 2: "8H", 3: "8W"},
+            "contorl_2": {0: "B", 2: "8H", 3: "8W"},
+            "contorl_3": {0: "B", 2: "4H", 3: "4W"},
+            "contorl_4": {0: "B", 2: "4H", 3: "4W"},
+            "contorl_5": {0: "B", 2: "4H", 3: "4W"},
+            "contorl_6": {0: "B", 2: "2H", 3: "2W"},
+            "contorl_7": {0: "B", 2: "2H", 3: "2W"},
+            "contorl_8": {0: "B", 2: "2H", 3: "2W"},
+            "contorl_9": {0: "B", 2: "H", 3: "W"},
+            "contorl_10": {0: "B", 2: "H", 3: "W"},
+            "contorl_11": {0: "B", 2: "H", 3: "W"},
+            "contorl_12": {0: "B", 2: "H", 3: "W"},
+            'latent': {0: 'B', 2: '8H', 3: '8W'}
         }
 
     def get_input_profile(self, batch_size, image_height, image_width, static_batch, static_shape):
@@ -277,25 +314,110 @@ class UNet(BaseModel):
                 (batch_size, self.unet_dim, latent_height, latent_width), # opt
                 (max_batch, self.unet_dim, max_latent_height, max_latent_width) # max
             ],
-            'encoder_hidden_states': [
-                (min_batch, self.text_maxlen, self.embedding_dim), # min
-                (batch_size, self.text_maxlen, self.embedding_dim), # opt
-                (max_batch, self.text_maxlen, self.embedding_dim) # max
-            ]
+            "timestep": [
+                (min_batch,),     
+                (batch_size,),
+                (max_batch,)
+            ],
+            "context": [
+                (min_batch, self.text_maxlen, self.embedding_dim),
+                (batch_size, self.text_maxlen, self.embedding_dim),
+                (max_batch, self.text_maxlen, self.embedding_dim)
+            ],
+            "contorl_0": [
+                (min_batch, 320, min_latent_height, min_latent_width), # min
+                (batch_size, 320, latent_height, latent_width), # opt
+                (max_batch, 320, max_latent_height, max_latent_width) # max
+            ],
+            "contorl_1": [
+                (min_batch, 320, min_latent_height, min_latent_width), # min
+                (batch_size, 320, latent_height, latent_width), # opt
+                (max_batch, 320, max_latent_height, max_latent_width) # max
+            ],
+            "contorl_2": [
+                (min_batch, 320, min_latent_height, min_latent_width), # min
+                (batch_size, 320, latent_height, latent_width), # opt
+                (max_batch, 320, max_latent_height, max_latent_width) # max
+            ],
+            "contorl_3": [
+                (min_batch, 320, min_latent_height // 2, min_latent_width // 2), # min
+                (batch_size, 320, latent_height // 2, latent_width // 2), # opt
+                (max_batch, 320, max_latent_height // 2, max_latent_width // 2) # max
+            ],
+            "contorl_4": [
+                (min_batch, 640, min_latent_height // 2, min_latent_width // 2), # min
+                (batch_size, 640, latent_height // 2, latent_width // 2), # opt
+                (max_batch, 640, max_latent_height // 2, max_latent_width // 2) # max
+            ],
+            "contorl_5": [
+                (min_batch, 640, min_latent_height // 2, min_latent_width // 2), # min
+                (batch_size, 640, latent_height // 2, latent_width // 2), # opt
+                (max_batch, 640, max_latent_height // 2, max_latent_width // 2) # max
+            ],
+            "contorl_6": [
+                (min_batch, 640, min_latent_height // 4, min_latent_width // 4), # min
+                (batch_size, 640, latent_height // 4, latent_width // 4), # opt
+                (max_batch, 640, max_latent_height // 4, max_latent_width // 4) # max
+            ],
+            "contorl_7": [
+                (min_batch, 1280, min_latent_height // 4, min_latent_width // 4), # min
+                (batch_size, 1280, latent_height // 4, latent_width // 4), # opt
+                (max_batch, 1280, max_latent_height // 4, max_latent_width // 4) # max
+            ],
+            "contorl_8": [
+                (min_batch, 1280, min_latent_height // 4, min_latent_width // 4), # min
+                (batch_size, 1280, latent_height // 4, latent_width // 4), # opt
+                (max_batch, 1280, max_latent_height // 4, max_latent_width // 4) # max
+            ],
+            "contorl_9": [
+                (min_batch, 1280, min_latent_height // 8, min_latent_width // 8), # min
+                (batch_size, 1280, latent_height // 8, latent_width // 8), # opt
+                (max_batch, 1280, max_latent_height // 8, max_latent_width // 8) # max
+            ],
+            "contorl_10": [
+                (min_batch, 1280, min_latent_height // 8, min_latent_width // 8), # min
+                (batch_size, 1280, latent_height // 8, latent_width // 8), # opt
+                (max_batch, 1280, max_latent_height // 8, max_latent_width // 8) # max
+            ],
+            "contorl_11": [
+                (min_batch, 1280, min_latent_height // 8, min_latent_width // 8), # min
+                (batch_size, 1280, latent_height // 8, latent_width // 8), # opt
+                (max_batch, 1280, max_latent_height // 8, max_latent_width // 8) # max
+            ],
+            "contorl_12": [
+                (min_batch, 1280, min_latent_height // 8, min_latent_width // 8), # min
+                (batch_size, 1280, latent_height // 8, latent_width // 8), # opt
+                (max_batch, 1280, max_latent_height // 8, max_latent_width // 8) # max
+            ],
         }
 
     def get_shape_dict(self, batch_size, image_height, image_width):
         latent_height, latent_width = self.check_dims(batch_size, image_height, image_width)
         return {
             'sample': (batch_size, self.unet_dim, latent_height, latent_width),
-            'encoder_hidden_states': (batch_size, self.text_maxlen, self.embedding_dim),
-            'latent': (batch_size, 4, latent_height, latent_width)
+            "timestep": (batch_size,),
+            "context": (batch_size, self.text_maxlen, self.embedding_dim),
+            "contorl_0": (batch_size, 320, latent_height, latent_width),
+            "contorl_1": (batch_size, 320, latent_height, latent_width),
+            "contorl_2": (batch_size, 320, latent_height, latent_width),
+            "contorl_3": (batch_size, 320, latent_height // 2, latent_width // 2),
+            "contorl_4": (batch_size, 640, latent_height // 2, latent_width // 2),
+            "contorl_5": (batch_size, 640, latent_height // 2, latent_width // 2),
+            "contorl_6": (batch_size, 640, latent_height // 4, latent_width // 4),
+            "contorl_7": (batch_size, 1280, latent_height // 4, latent_width // 4),
+            "contorl_8": (batch_size, 1280, latent_height // 4, latent_width // 4),
+            "contorl_9": (batch_size, 1280, latent_height // 8, latent_width // 8),
+            "contorl_10": (batch_size, 1280, latent_height // 8, latent_width // 8),
+            "contorl_11": (batch_size, 1280, latent_height // 8, latent_width // 8),
+            "contorl_12": (batch_size, 1280, latent_height // 8, latent_width // 8),
+            'latent': (batch_size, self.unet_dim, latent_height, latent_width)
         }
 
     def get_sample_input(self, batch_size, image_height, image_width):
         latent_height, latent_width = self.check_dims(batch_size, image_height, image_width)
         dtype = torch.float16 if self.fp16 else torch.float32
         return (
+            # 'sample': ['B', 4, '8H', '8W']
             torch.randn(
                 batch_size,
                 self.unet_dim,
@@ -304,14 +426,133 @@ class UNet(BaseModel):
                 dtype=torch.float32,
                 device=self.device
             ),
+            # "timestep": ['B'],
             torch.tensor([1.], dtype=torch.float32, device=self.device),
+            # "context": ['B', 'T', 'E']
             torch.randn(
                 batch_size,
                 self.text_maxlen,
                 self.embedding_dim,
                 dtype=dtype,
                 device=self.device
-            )
+            ),
+            # "contorl_0": ["B", 320, "8H", "8W"],
+            torch.randn(
+                batch_size,
+                320,
+                latent_height,
+                latent_width,
+                dtype=dtype,
+                device=self.device
+            ),
+            # "contorl_1": ["B", 320, "8H", "8W"],
+            torch.randn(
+                batch_size,
+                320,
+                latent_height,
+                latent_width,
+                dtype=dtype,
+                device=self.device
+            ),
+            # "contorl_2": ["B", 320, "8H", "8W"],
+            torch.randn(
+                batch_size,
+                320,
+                latent_height,
+                latent_width,
+                dtype=dtype,
+                device=self.device
+            ),
+            # "contorl_3": ["B", 320, "4H", "4W"],
+            torch.randn(
+                batch_size,
+                320,
+                latent_height // 2,
+                latent_width // 2,
+                dtype=dtype,
+                device=self.device
+            ),
+            # "contorl_4": ["B", 640, "4H", "4W"],
+            torch.randn(
+                batch_size,
+                640,
+                latent_height // 2,
+                latent_width // 2,
+                dtype=dtype,
+                device=self.device
+            ),
+            # "contorl_5": ["B", 640, "4H", "4W"],
+            torch.randn(
+                batch_size,
+                640,
+                latent_height // 2,
+                latent_width // 2,
+                dtype=dtype,
+                device=self.device
+            ),
+            # "contorl_6": ["B", 640, "2H", "2W"],
+            torch.randn(
+                batch_size,
+                640,
+                latent_height // 4,
+                latent_width // 4,
+                dtype=dtype,
+                device=self.device
+            ),
+            # "contorl_7": ["B", 1280, "2H", "2W"],
+            torch.randn(
+                batch_size,
+                1280,
+                latent_height // 4,
+                latent_width // 4,
+                dtype=dtype,
+                device=self.device
+            ),
+            # "contorl_8": ["B", 1280, "2H", "2W"],
+            torch.randn(
+                batch_size,
+                1280,
+                latent_height // 4,
+                latent_width // 4,
+                dtype=dtype,
+                device=self.device
+            ),
+            # "contorl_9": ["B", 1280, "H", "W"],
+            torch.randn(
+                batch_size,
+                1280,
+                latent_height // 8,
+                latent_width // 8,
+                dtype=dtype,
+                device=self.device
+            ),
+            # "contorl_10": ["B", 1280, "H", "W"],
+            torch.randn(
+                batch_size,
+                1280,
+                latent_height // 8,
+                latent_width // 8,
+                dtype=dtype,
+                device=self.device
+            ),
+            # "contorl_11": ["B", 1280, "H", "W"],
+            torch.randn(
+                batch_size,
+                1280,
+                latent_height // 8,
+                latent_width // 8,
+                dtype=dtype,
+                device=self.device
+            ),
+            # "contorl_12": ["B", 1280, "H", "W"],
+            torch.randn(
+                batch_size,
+                1280,
+                latent_height // 8,
+                latent_width // 8,
+                dtype=dtype,
+                device=self.device
+            ),
         )
 
 
