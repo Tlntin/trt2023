@@ -1,12 +1,13 @@
 from share import *
 import config
 
-import cv2
+# import cv2
 import einops
-import gradio as gr
+# import gradio as gr
 import numpy as np
 import torch
 import random
+import gc
 from pytorch_lightning import seed_everything
 from annotator.util import resize_image, HWC3
 from annotator.canny import CannyDetector
@@ -14,13 +15,17 @@ from cldm.model import create_model, load_state_dict
 from cldm.ddim_hacked import DDIMSampler
 # ------------ new add ---------------
 import os
+import onnx
 from cuda import cudart
 from models import (get_embedding_dim, CLIP, ControlNet, UNet, VAE)
+from polygraphy import cuda
 from utilities import Engine
 
 
+now_dir = os.path.dirname(os.path.abspath(__file__))
+
+
 class hackathon():
-    now_dir = os.path.dirname(os.path.abspath(__file__))
     def __init__(
         self,
         version="1.5",
@@ -31,7 +36,7 @@ class hackathon():
         device='cuda',
         output_dir = os.path.join(now_dir, "output"),
         verbose=False,
-        nvtx_frofile=False,
+        nvtx_profile=False,
         use_cuda_graph=False
         ) -> None:
         """
@@ -100,7 +105,10 @@ class hackathon():
         )
         self.model = self.model.cuda()
         for k, v in self.state_dict.items():
-            temp_model = getattr(self.model, v)
+            if k != "unet":
+                temp_model = getattr(self.model, v)
+            else:
+                temp_model = getattr(self.model.model, v)
             if k == "clip":
                 self.tokenizer = temp_model.tokenizer
                 new_model = CLIP(
@@ -130,7 +138,7 @@ class hackathon():
                     max_batch_size=self.max_batch_size,
                     embedding_dim=self.embedding_dim
                 )
-                delattr(self.model, v)
+                delattr(self.model.model, v)
                 setattr(self.model, k, new_model)
 
             elif k == "vae":
@@ -259,8 +267,6 @@ class hackathon():
             'verbose': self.verbose,
             'max_batch_size': self.max_batch_size
         }
-
-
         # Export models to ONNX
         for model_name in self.stages:
             obj = getattr(self.model, model_name)
@@ -279,14 +285,14 @@ class hackathon():
                                 opt_image_width
                             )
                             torch.onnx.export(model,
-                                    inputs,
-                                    onnx_path,
-                                    export_params=True,
-                                    opset_version=onnx_opset,
-                                    do_constant_folding=True,
-                                    input_names=obj.get_input_names(),
-                                    output_names=obj.get_output_names(),
-                                    dynamic_axes=obj.get_dynamic_axes(),
+                                inputs,
+                                onnx_path,
+                                export_params=True,
+                                opset_version=onnx_opset,
+                                do_constant_folding=True,
+                                input_names=obj.get_input_names(),
+                                output_names=obj.get_output_names(),
+                                dynamic_axes=obj.get_dynamic_axes(),
                             )
                         del model
                         torch.cuda.empty_cache()
@@ -307,11 +313,11 @@ class hackathon():
             obj = getattr(self.model, model_name)
             engine_path = self.get_engine_path(model_name, engine_dir)
             engine = Engine(engine_path)
-            onnx_path = self.get_onnx_path(
-                model_name,
-                onnx_dir,
-                opt=False
-            )
+            # onnx_path = self.get_onnx_path(
+            #     model_name,
+            #     onnx_dir,
+            #     opt=False
+            # )
             onnx_opt_path = self.get_onnx_path(
                 model_name, onnx_dir
             )
@@ -324,7 +330,8 @@ class hackathon():
                         opt_batch_size, opt_image_height, opt_image_width,
                         static_batch=static_batch, static_shape=static_shape
                     ),
-                    enable_refit=enable_refit,
+                    # enable_refit=enable_refit,
+                    enable_refit=False,
                     enable_preview=enable_preview,
                     enable_all_tactics=enable_all_tactics,
                     timing_cache=timing_cache,
@@ -337,18 +344,20 @@ class hackathon():
         for model_name, obj in self.models.items():
             engine = self.engine[model_name]
             engine.load()
-            max_device_memory = max(max_device_memory, engine.engine.device_memory_size)
-            if onnx_refit_dir:
-                onnx_refit_path = self.getOnnxPath(model_name, onnx_refit_dir)
-                if os.path.exists(onnx_refit_path):
-                    engine.refit(onnx_opt_path, onnx_refit_path)
+            max_device_memory = max(
+                max_device_memory,
+                engine.engine.device_memory_size
+            )
+            # if onnx_refit_dir:
+            #     onnx_refit_path = self.getOnnxPath(model_name, onnx_refit_dir)
+            #     if os.path.exists(onnx_refit_path):
+            #         engine.refit(onnx_opt_path, onnx_refit_path)
         print("max device memory: ", max_device_memory)
         self.shared_device_memory = cuda.DeviceArray.raw(
             (int(max_device_memory * 0.90),)
         )
         for engine in self.engine.values():
             engine.activate(reuse_device_memory=self.shared_device_memory.ptr)
-
 
     def process(
             self,
@@ -430,4 +439,24 @@ class hackathon():
 
 
 if __name__ == "__main__":
-    
+    hk = hackathon() 
+    hk.initialize()
+    output_dir1 = os.path.join(now_dir, "output")
+    if not os.path.exists(output_dir1):
+        os.makedirs(output_dir1)
+    engine_dir1 = os.path.join(output_dir1, "engine")
+    if not os.path.exists(engine_dir1):
+        os.makedirs(engine_dir1)
+    onnx_dir1 = os.path.join(output_dir1, "onnx")
+    if not os.path.exists(onnx_dir1):
+        os.makedirs(onnx_dir1)
+    onnx_opset1 = 17
+    hk.load_engines(
+        engine_dir=engine_dir1,
+        onnx_dir=onnx_dir1,
+        onnx_opset=onnx_opset1,
+        opt_batch_size=8,
+        opt_image_height=256,
+        opt_image_width=384,
+        timing_cache="time_cache_fp16.cache"
+    )
