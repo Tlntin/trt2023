@@ -15,7 +15,7 @@ from cldm.ddim_hacked import DDIMSampler
 # ------------ new add ---------------
 import os
 from cuda import cudart
-from models import (get_embedding_dim, CLIP, UNet, VAE)
+from models import (get_embedding_dim, CLIP, ControlNet, UNet, VAE)
 from utilities import Engine
 
 
@@ -27,6 +27,7 @@ class hackathon():
         stages=["clip", "control_net", "unet", "vae"],
         max_batch_size=16,
         de_noising_steps=20,
+        guidance_scale=9.0,            
         device='cuda',
         output_dir = os.path.join(now_dir, "output"),
         verbose=False,
@@ -58,6 +59,7 @@ class hackathon():
                 Use CUDA graph to capture engine execution and then launch inference
         """
         self.de_noising_steps = de_noising_steps
+        self.guidance_scale = guidance_scale
         self.max_batch_size = max_batch_size
         _, free_mem, _ = cudart.cudaMemGetInfo()
         one_gb = 1 ** 30
@@ -110,8 +112,16 @@ class hackathon():
                 )
                 delattr(self.model, v)
                 setattr(self.model, k, new_model)
-
-
+            elif k == "control_net":
+                new_model = ControlNet(
+                    model=temp_model,
+                    device=self.device,
+                    verbose=self.verbose,
+                    max_batch_size=self.max_batch_size,
+                    embedding_dim=self.embedding_dim
+                )
+                delattr(self.model, v)
+                setattr(self.model, k, new_model)
             elif k == "unet":
                 new_model = UNet(
                     model=temp_model,
@@ -134,8 +144,7 @@ class hackathon():
                 delattr(self.model, v)
                 setattr(self.model, k, new_model)
             else:
-                pass
-                # raise Exception("Unknown stage")
+                raise Exception("Unknown stage")
         self.ddim_sampler = DDIMSampler(self.model)
     
     def load_resources(self, image_height, image_width, batch_size, seed):
