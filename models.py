@@ -231,6 +231,177 @@ class CLIP(BaseModel):
         return opt_onnx_graph
 
 
+class ControlNet(BaseModel):
+    def __init__(self,
+        model,
+        fp16=False,
+        device='cuda',
+        verbose=True,
+        max_batch_size=16,
+        embedding_dim=768,
+        text_maxlen=77,
+        unet_dim=4
+    ):
+        super(ControlNet, self).__init__(
+            fp16=fp16,
+            device=device,
+            verbose=verbose,
+            max_batch_size=max_batch_size,
+            embedding_dim=embedding_dim,
+            text_maxlen=text_maxlen
+        )
+        self.unet_dim = unet_dim
+        self.name = "ControlNet"
+        self.model = model
+
+    def get_model(self):
+        # model_opts = {'revision': 'fp16', 'torch_dtype': torch.float16} if self.fp16 else {}
+        if self.fp16:
+            self.model = self.model.half()
+        return self.model
+
+    def get_input_names(self):
+        return [
+            "sample",
+            "hint",
+            "timestep",
+            "context"
+        ]
+
+    def get_output_names(self):
+        return [
+            "contorl_0",
+            "contorl_1",
+            "contorl_2",
+            "contorl_3",
+            "contorl_4",
+            "contorl_5",
+            "contorl_6",
+            "contorl_7",
+            "contorl_8",
+            "contorl_9",
+            "contorl_10",
+            "contorl_11",
+            "contorl_12",
+        ]
+
+    def get_dynamic_axes(self):
+        return {
+            'sample': {0: 'B', 2: '8H', 3: '8W'},
+            "hint": {0: 'B', 2: 'height', 3: 'width'},
+            "timestep": {0: 'B'},
+            "context": {0: 'B'},
+            "contorl_0": {0: "B", 2: "8H", 3: "8W"},
+            "contorl_1": {0: "B", 2: "8H", 3: "8W"},
+            "contorl_2": {0: "B", 2: "8H", 3: "8W"},
+            "contorl_3": {0: "B", 2: "4H", 3: "4W"},
+            "contorl_4": {0: "B", 2: "4H", 3: "4W"},
+            "contorl_5": {0: "B", 2: "4H", 3: "4W"},
+            "contorl_6": {0: "B", 2: "2H", 3: "2W"},
+            "contorl_7": {0: "B", 2: "2H", 3: "2W"},
+            "contorl_8": {0: "B", 2: "2H", 3: "2W"},
+            "contorl_9": {0: "B", 2: "H", 3: "W"},
+            "contorl_10": {0: "B", 2: "H", 3: "W"},
+            "contorl_11": {0: "B", 2: "H", 3: "W"},
+            "contorl_12": {0: "B", 2: "H", 3: "W"},
+        }
+
+    def get_input_profile(self, batch_size, image_height, image_width, static_batch, static_shape):
+        latent_height, latent_width = self.check_dims(batch_size, image_height, image_width)
+        (
+            min_batch, max_batch,
+            min_image_height, max_image_height,
+            min_image_width, max_image_width,
+            min_latent_height, max_latent_height,
+            min_latent_width, max_latent_width 
+        ) = \
+            self.get_minmax_dims(
+                batch_size,
+                image_height,
+                image_width,
+                static_batch,
+                static_shape
+            )
+        return {
+            'sample': [
+                (min_batch, self.unet_dim, min_latent_height, min_latent_width), # min
+                (batch_size, self.unet_dim, latent_height, latent_width), # opt
+                (max_batch, self.unet_dim, max_latent_height, max_latent_width) # max
+            ],
+            "hint": [
+                (min_batch, 3, min_image_height, min_image_width), # min
+                (batch_size, 3, image_height, image_width), # opt
+                (max_batch, 3, max_image_height, max_image_width) # max
+            ],
+            "timestep": [
+                (min_batch,),     
+                (batch_size,),
+                (max_batch,)
+            ],
+            "context": [
+                (min_batch, self.text_maxlen, self.embedding_dim),
+                (batch_size, self.text_maxlen, self.embedding_dim),
+                (max_batch, self.text_maxlen, self.embedding_dim)
+            ],
+        }
+
+    def get_shape_dict(self, batch_size, image_height, image_width):
+        latent_height, latent_width = self.check_dims(batch_size, image_height, image_width)
+        return {
+            'sample': (batch_size, self.unet_dim, latent_height, latent_width),
+            'hint': (batch_size, 3, image_height, image_width),
+            "timestep": (batch_size,),
+            "context": (batch_size, self.text_maxlen, self.embedding_dim),
+            "contorl_0": (batch_size, 320, latent_height, latent_width),
+            "contorl_1": (batch_size, 320, latent_height, latent_width),
+            "contorl_2": (batch_size, 320, latent_height, latent_width),
+            "contorl_3": (batch_size, 320, latent_height // 2, latent_width // 2),
+            "contorl_4": (batch_size, 640, latent_height // 2, latent_width // 2),
+            "contorl_5": (batch_size, 640, latent_height // 2, latent_width // 2),
+            "contorl_6": (batch_size, 640, latent_height // 4, latent_width // 4),
+            "contorl_7": (batch_size, 1280, latent_height // 4, latent_width // 4),
+            "contorl_8": (batch_size, 1280, latent_height // 4, latent_width // 4),
+            "contorl_9": (batch_size, 1280, latent_height // 8, latent_width // 8),
+            "contorl_10": (batch_size, 1280, latent_height // 8, latent_width // 8),
+            "contorl_11": (batch_size, 1280, latent_height // 8, latent_width // 8),
+            "contorl_12": (batch_size, 1280, latent_height // 8, latent_width // 8),
+        }
+
+    def get_sample_input(self, batch_size, image_height, image_width):
+        latent_height, latent_width = self.check_dims(batch_size, image_height, image_width)
+        dtype = torch.float16 if self.fp16 else torch.float32
+        return (
+            # 'sample': ['B', 4, 'latent_height', 'latent_width']
+            torch.randn(
+                batch_size,
+                self.unet_dim,
+                latent_height,
+                latent_width,
+                dtype=torch.float32,
+                device=self.device
+            ),
+            # 'hint': ['B', 4, 'image_height', 'image_width']
+            torch.randn(
+                batch_size,
+                3,
+                image_height,
+                image_width,
+                dtype=torch.float32,
+                device=self.device
+            ),
+            # "timestep": ['B'],
+            torch.tensor([1.], dtype=torch.float32, device=self.device),
+            # "context": ['B', 'T', 'E']
+            torch.randn(
+                batch_size,
+                self.text_maxlen,
+                self.embedding_dim,
+                dtype=dtype,
+                device=self.device
+            )
+        )
+
+
 class UNet(BaseModel):
     def __init__(self,
         model,
