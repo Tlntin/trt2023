@@ -380,7 +380,7 @@ class ControlNet(BaseModel):
                 dtype=torch.float32,
                 device=self.device
             ),
-            # 'hint': ['B', 4, 'image_height', 'image_width']
+            # 'hint': ['B', 3, 'image_height', 'image_width']
             torch.randn(
                 batch_size,
                 3,
