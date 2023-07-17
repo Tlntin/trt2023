@@ -458,8 +458,10 @@ if __name__ == "__main__":
         engine_dir=engine_dir1,
         onnx_dir=onnx_dir1,
         onnx_opset=onnx_opset1,
-        opt_batch_size=8,
+        opt_batch_size=1,
         opt_image_height=256,
         opt_image_width=384,
-        timing_cache=time_cache_path1
+        timing_cache=time_cache_path1,
+        static_batch=True,
+        static_shape=True
     )
