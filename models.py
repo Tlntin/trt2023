@@ -637,123 +637,125 @@ class UNet(BaseModel):
                 dtype=dtype,
                 device=self.device
             ),
-            # "contorl_0": ["B", 320, "8H", "8W"],
-            torch.randn(
-                batch_size,
-                320,
-                latent_height,
-                latent_width,
-                dtype=dtype,
-                device=self.device
-            ),
-            # "contorl_1": ["B", 320, "8H", "8W"],
-            torch.randn(
-                batch_size,
-                320,
-                latent_height,
-                latent_width,
-                dtype=dtype,
-                device=self.device
-            ),
-            # "contorl_2": ["B", 320, "8H", "8W"],
-            torch.randn(
-                batch_size,
-                320,
-                latent_height,
-                latent_width,
-                dtype=dtype,
-                device=self.device
-            ),
-            # "contorl_3": ["B", 320, "4H", "4W"],
-            torch.randn(
-                batch_size,
-                320,
-                latent_height // 2,
-                latent_width // 2,
-                dtype=dtype,
-                device=self.device
-            ),
-            # "contorl_4": ["B", 640, "4H", "4W"],
-            torch.randn(
-                batch_size,
-                640,
-                latent_height // 2,
-                latent_width // 2,
-                dtype=dtype,
-                device=self.device
-            ),
-            # "contorl_5": ["B", 640, "4H", "4W"],
-            torch.randn(
-                batch_size,
-                640,
-                latent_height // 2,
-                latent_width // 2,
-                dtype=dtype,
-                device=self.device
-            ),
-            # "contorl_6": ["B", 640, "2H", "2W"],
-            torch.randn(
-                batch_size,
-                640,
-                latent_height // 4,
-                latent_width // 4,
-                dtype=dtype,
-                device=self.device
-            ),
-            # "contorl_7": ["B", 1280, "2H", "2W"],
-            torch.randn(
-                batch_size,
-                1280,
-                latent_height // 4,
-                latent_width // 4,
-                dtype=dtype,
-                device=self.device
-            ),
-            # "contorl_8": ["B", 1280, "2H", "2W"],
-            torch.randn(
-                batch_size,
-                1280,
-                latent_height // 4,
-                latent_width // 4,
-                dtype=dtype,
-                device=self.device
-            ),
-            # "contorl_9": ["B", 1280, "H", "W"],
-            torch.randn(
-                batch_size,
-                1280,
-                latent_height // 8,
-                latent_width // 8,
-                dtype=dtype,
-                device=self.device
-            ),
-            # "contorl_10": ["B", 1280, "H", "W"],
-            torch.randn(
-                batch_size,
-                1280,
-                latent_height // 8,
-                latent_width // 8,
-                dtype=dtype,
-                device=self.device
-            ),
-            # "contorl_11": ["B", 1280, "H", "W"],
-            torch.randn(
-                batch_size,
-                1280,
-                latent_height // 8,
-                latent_width // 8,
-                dtype=dtype,
-                device=self.device
-            ),
-            # "contorl_12": ["B", 1280, "H", "W"],
-            torch.randn(
-                batch_size,
-                1280,
-                latent_height // 8,
-                latent_width // 8,
-                dtype=dtype,
-                device=self.device
-            ),
+            [
+                # "contorl_0": ["B", 320, "8H", "8W"],
+                torch.randn(
+                    batch_size,
+                    320,
+                    latent_height,
+                    latent_width,
+                    dtype=dtype,
+                    device=self.device
+                ),
+                # "contorl_1": ["B", 320, "8H", "8W"],
+                torch.randn(
+                    batch_size,
+                    320,
+                    latent_height,
+                    latent_width,
+                    dtype=dtype,
+                    device=self.device
+                ),
+                # "contorl_2": ["B", 320, "8H", "8W"],
+                torch.randn(
+                    batch_size,
+                    320,
+                    latent_height,
+                    latent_width,
+                    dtype=dtype,
+                    device=self.device
+                ),
+                # "contorl_3": ["B", 320, "4H", "4W"],
+                torch.randn(
+                    batch_size,
+                    320,
+                    latent_height // 2,
+                    latent_width // 2,
+                    dtype=dtype,
+                    device=self.device
+                ),
+                # "contorl_4": ["B", 640, "4H", "4W"],
+                torch.randn(
+                    batch_size,
+                    640,
+                    latent_height // 2,
+                    latent_width // 2,
+                    dtype=dtype,
+                    device=self.device
+                ),
+                # "contorl_5": ["B", 640, "4H", "4W"],
+                torch.randn(
+                    batch_size,
+                    640,
+                    latent_height // 2,
+                    latent_width // 2,
+                    dtype=dtype,
+                    device=self.device
+                ),
+                # "contorl_6": ["B", 640, "2H", "2W"],
+                torch.randn(
+                    batch_size,
+                    640,
+                    latent_height // 4,
+                    latent_width // 4,
+                    dtype=dtype,
+                    device=self.device
+                ),
+                # "contorl_7": ["B", 1280, "2H", "2W"],
+                torch.randn(
+                    batch_size,
+                    1280,
+                    latent_height // 4,
+                    latent_width // 4,
+                    dtype=dtype,
+                    device=self.device
+                ),
+                # "contorl_8": ["B", 1280, "2H", "2W"],
+                torch.randn(
+                    batch_size,
+                    1280,
+                    latent_height // 4,
+                    latent_width // 4,
+                    dtype=dtype,
+                    device=self.device
+                ),
+                # "contorl_9": ["B", 1280, "H", "W"],
+                torch.randn(
+                    batch_size,
+                    1280,
+                    latent_height // 8,
+                    latent_width // 8,
+                    dtype=dtype,
+                    device=self.device
+                ),
+                # "contorl_10": ["B", 1280, "H", "W"],
+                torch.randn(
+                    batch_size,
+                    1280,
+                    latent_height // 8,
+                    latent_width // 8,
+                    dtype=dtype,
+                    device=self.device
+                ),
+                # "contorl_11": ["B", 1280, "H", "W"],
+                torch.randn(
+                    batch_size,
+                    1280,
+                    latent_height // 8,
+                    latent_width // 8,
+                    dtype=dtype,
+                    device=self.device
+                ),
+                # "contorl_12": ["B", 1280, "H", "W"],
+                torch.randn(
+                    batch_size,
+                    1280,
+                    latent_height // 8,
+                    latent_width // 8,
+                    dtype=dtype,
+                    device=self.device
+                ),
+            ]
         )
 
 

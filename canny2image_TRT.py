@@ -267,6 +267,7 @@ class hackathon():
             'verbose': self.verbose,
             'max_batch_size': self.max_batch_size
         }
+        print("model args: ", models_args)
         # Export models to ONNX
         for model_name in self.stages:
             obj = getattr(self.model, model_name)
