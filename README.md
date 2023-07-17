@@ -171,4 +171,24 @@ docker exec -u player -it trt2023 /bin/bash
 # 此时终端长这样，可以看到是player用户
 # player@335a6e153173:~/ControlNet$ 
 ```
+5. 运行代码
+- 模型转onnx, onnx转trt, 检查精度
+```bash
+python canny2image_TRT.py
+```
+
+- pytorch版模型生成图片
+```bash
+python compute_score_old.py
+```
+
+- TensorRT版模型生成图片，并计算PD_score
+```bash
+python compute_score_new.py
+```
+
+- TensorRT版模型生成图片，不计算PD_score(这是原版)
+```bash
+python compute_score.py
+```
 
