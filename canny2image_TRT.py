@@ -113,9 +113,9 @@ class hackathon():
         self.apply_canny = CannyDetector()
         self.model = create_model('./models/cldm_v15.yaml').cpu()
         self.model.load_state_dict(
-            load_state_dict('./models/control_sd15_canny.pth', location='cuda')
+            load_state_dict('./models/control_sd15_canny.pth')
         )
-        self.model = self.model.cuda()
+        #self.model = self.model.cuda()
         for k, v in self.state_dict.items():
             if k != "unet":
                 temp_model = getattr(self.model, v)
@@ -350,7 +350,7 @@ class hackathon():
                     if force_export or not os.path.exists(onnx_path):
                         print(f"Exporting model: {onnx_path}")
                         model = obj.get_model()
-                        with torch.inference_mode(), torch.autocast("cuda"):
+                        with torch.inference_mode():
                             inputs = obj.get_sample_input(
                                 opt_batch_size,
                                 opt_image_height,
