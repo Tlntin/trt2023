@@ -1,3 +1,4 @@
+from share import *
 import config
 
 # import cv2
