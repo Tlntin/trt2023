@@ -508,12 +508,28 @@ class TRT_DDIMSampler(object):
         # self.control_scalres = [1] * n, ignore it
         # control = [c * scale for c, scale in zip(control, self.control_scales)]
         # eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=control, only_mid_control=self.only_mid_control)
-        control_dict["sample"] = x_noisy
-        control_dict["timestep"] = t
-        control_dict["context"] = cond_txt
+        input_names = [
+            "sample",
+            "timestep",
+            "context",
+            "control_0",
+            "control_1",
+            "control_2",
+            "control_3",
+            "control_4",
+            "control_5",
+            "control_6",
+            "control_7",
+            "control_8",
+            "control_9",
+            "control_10",
+            "control_11",
+            "control_12",
+        ]
+        input_dict = {name: control_dict[name] for name in input_names}
         eps = self.run_engine(
             "unet",
-            control_dict   
+            input_dict
         )["latent"]
         return eps
     

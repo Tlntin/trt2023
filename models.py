@@ -300,19 +300,19 @@ class ControlNet(BaseModel):
 
     def get_output_names(self):
         return [
-            "contorl_0",
-            "contorl_1",
-            "contorl_2",
-            "contorl_3",
-            "contorl_4",
-            "contorl_5",
-            "contorl_6",
-            "contorl_7",
-            "contorl_8",
-            "contorl_9",
-            "contorl_10",
-            "contorl_11",
-            "contorl_12",
+            "control_0",
+            "control_1",
+            "control_2",
+            "control_3",
+            "control_4",
+            "control_5",
+            "control_6",
+            "control_7",
+            "control_8",
+            "control_9",
+            "control_10",
+            "control_11",
+            "control_12",
         ]
 
     def get_dynamic_axes(self):
@@ -321,19 +321,19 @@ class ControlNet(BaseModel):
             "hint": {0: 'B', 2: 'height', 3: 'width'},
             "timestep": {0: 'B'},
             "context": {0: 'B'},
-            "contorl_0": {0: "B", 2: "8H", 3: "8W"},
-            "contorl_1": {0: "B", 2: "8H", 3: "8W"},
-            "contorl_2": {0: "B", 2: "8H", 3: "8W"},
-            "contorl_3": {0: "B", 2: "4H", 3: "4W"},
-            "contorl_4": {0: "B", 2: "4H", 3: "4W"},
-            "contorl_5": {0: "B", 2: "4H", 3: "4W"},
-            "contorl_6": {0: "B", 2: "2H", 3: "2W"},
-            "contorl_7": {0: "B", 2: "2H", 3: "2W"},
-            "contorl_8": {0: "B", 2: "2H", 3: "2W"},
-            "contorl_9": {0: "B", 2: "H", 3: "W"},
-            "contorl_10": {0: "B", 2: "H", 3: "W"},
-            "contorl_11": {0: "B", 2: "H", 3: "W"},
-            "contorl_12": {0: "B", 2: "H", 3: "W"},
+            "control_0": {0: "B", 2: "8H", 3: "8W"},
+            "control_1": {0: "B", 2: "8H", 3: "8W"},
+            "control_2": {0: "B", 2: "8H", 3: "8W"},
+            "control_3": {0: "B", 2: "4H", 3: "4W"},
+            "control_4": {0: "B", 2: "4H", 3: "4W"},
+            "control_5": {0: "B", 2: "4H", 3: "4W"},
+            "control_6": {0: "B", 2: "2H", 3: "2W"},
+            "control_7": {0: "B", 2: "2H", 3: "2W"},
+            "control_8": {0: "B", 2: "2H", 3: "2W"},
+            "control_9": {0: "B", 2: "H", 3: "W"},
+            "control_10": {0: "B", 2: "H", 3: "W"},
+            "control_11": {0: "B", 2: "H", 3: "W"},
+            "control_12": {0: "B", 2: "H", 3: "W"},
         }
 
     def get_input_profile(self, batch_size, image_height, image_width, static_batch, static_shape):
@@ -382,19 +382,19 @@ class ControlNet(BaseModel):
             'hint': (batch_size, 3, image_height, image_width),
             "timestep": (batch_size,),
             "context": (batch_size, self.text_maxlen, self.embedding_dim),
-            "contorl_0": (batch_size, 320, latent_height, latent_width),
-            "contorl_1": (batch_size, 320, latent_height, latent_width),
-            "contorl_2": (batch_size, 320, latent_height, latent_width),
-            "contorl_3": (batch_size, 320, latent_height // 2, latent_width // 2),
-            "contorl_4": (batch_size, 640, latent_height // 2, latent_width // 2),
-            "contorl_5": (batch_size, 640, latent_height // 2, latent_width // 2),
-            "contorl_6": (batch_size, 640, latent_height // 4, latent_width // 4),
-            "contorl_7": (batch_size, 1280, latent_height // 4, latent_width // 4),
-            "contorl_8": (batch_size, 1280, latent_height // 4, latent_width // 4),
-            "contorl_9": (batch_size, 1280, latent_height // 8, latent_width // 8),
-            "contorl_10": (batch_size, 1280, latent_height // 8, latent_width // 8),
-            "contorl_11": (batch_size, 1280, latent_height // 8, latent_width // 8),
-            "contorl_12": (batch_size, 1280, latent_height // 8, latent_width // 8),
+            "control_0": (batch_size, 320, latent_height, latent_width),
+            "control_1": (batch_size, 320, latent_height, latent_width),
+            "control_2": (batch_size, 320, latent_height, latent_width),
+            "control_3": (batch_size, 320, latent_height // 2, latent_width // 2),
+            "control_4": (batch_size, 640, latent_height // 2, latent_width // 2),
+            "control_5": (batch_size, 640, latent_height // 2, latent_width // 2),
+            "control_6": (batch_size, 640, latent_height // 4, latent_width // 4),
+            "control_7": (batch_size, 1280, latent_height // 4, latent_width // 4),
+            "control_8": (batch_size, 1280, latent_height // 4, latent_width // 4),
+            "control_9": (batch_size, 1280, latent_height // 8, latent_width // 8),
+            "control_10": (batch_size, 1280, latent_height // 8, latent_width // 8),
+            "control_11": (batch_size, 1280, latent_height // 8, latent_width // 8),
+            "control_12": (batch_size, 1280, latent_height // 8, latent_width // 8),
         }
 
     def get_sample_input(self, batch_size, image_height, image_width):
@@ -466,19 +466,19 @@ class UNet(BaseModel):
             "sample",
             "timestep",
             "context",
-            "contorl_0",
-            "contorl_1",
-            "contorl_2",
-            "contorl_3",
-            "contorl_4",
-            "contorl_5",
-            "contorl_6",
-            "contorl_7",
-            "contorl_8",
-            "contorl_9",
-            "contorl_10",
-            "contorl_11",
-            "contorl_12",
+            "control_0",
+            "control_1",
+            "control_2",
+            "control_3",
+            "control_4",
+            "control_5",
+            "control_6",
+            "control_7",
+            "control_8",
+            "control_9",
+            "control_10",
+            "control_11",
+            "control_12",
         ]
 
     def get_output_names(self):
@@ -489,19 +489,19 @@ class UNet(BaseModel):
             'sample': {0: 'B', 2: '8H', 3: '8W'},
             "timestep": {0: 'B'},
             "context": {0: 'B'},
-            "contorl_0": {0: "B", 2: "8H", 3: "8W"},
-            "contorl_1": {0: "B", 2: "8H", 3: "8W"},
-            "contorl_2": {0: "B", 2: "8H", 3: "8W"},
-            "contorl_3": {0: "B", 2: "4H", 3: "4W"},
-            "contorl_4": {0: "B", 2: "4H", 3: "4W"},
-            "contorl_5": {0: "B", 2: "4H", 3: "4W"},
-            "contorl_6": {0: "B", 2: "2H", 3: "2W"},
-            "contorl_7": {0: "B", 2: "2H", 3: "2W"},
-            "contorl_8": {0: "B", 2: "2H", 3: "2W"},
-            "contorl_9": {0: "B", 2: "H", 3: "W"},
-            "contorl_10": {0: "B", 2: "H", 3: "W"},
-            "contorl_11": {0: "B", 2: "H", 3: "W"},
-            "contorl_12": {0: "B", 2: "H", 3: "W"},
+            "control_0": {0: "B", 2: "8H", 3: "8W"},
+            "control_1": {0: "B", 2: "8H", 3: "8W"},
+            "control_2": {0: "B", 2: "8H", 3: "8W"},
+            "control_3": {0: "B", 2: "4H", 3: "4W"},
+            "control_4": {0: "B", 2: "4H", 3: "4W"},
+            "control_5": {0: "B", 2: "4H", 3: "4W"},
+            "control_6": {0: "B", 2: "2H", 3: "2W"},
+            "control_7": {0: "B", 2: "2H", 3: "2W"},
+            "control_8": {0: "B", 2: "2H", 3: "2W"},
+            "control_9": {0: "B", 2: "H", 3: "W"},
+            "control_10": {0: "B", 2: "H", 3: "W"},
+            "control_11": {0: "B", 2: "H", 3: "W"},
+            "control_12": {0: "B", 2: "H", 3: "W"},
             'latent': {0: 'B', 2: '8H', 3: '8W'}
         }
 
@@ -525,67 +525,67 @@ class UNet(BaseModel):
                 (batch_size, self.text_maxlen, self.embedding_dim),
                 (max_batch, self.text_maxlen, self.embedding_dim)
             ],
-            "contorl_0": [
+            "control_0": [
                 (min_batch, 320, min_latent_height, min_latent_width), # min
                 (batch_size, 320, latent_height, latent_width), # opt
                 (max_batch, 320, max_latent_height, max_latent_width) # max
             ],
-            "contorl_1": [
+            "control_1": [
                 (min_batch, 320, min_latent_height, min_latent_width), # min
                 (batch_size, 320, latent_height, latent_width), # opt
                 (max_batch, 320, max_latent_height, max_latent_width) # max
             ],
-            "contorl_2": [
+            "control_2": [
                 (min_batch, 320, min_latent_height, min_latent_width), # min
                 (batch_size, 320, latent_height, latent_width), # opt
                 (max_batch, 320, max_latent_height, max_latent_width) # max
             ],
-            "contorl_3": [
+            "control_3": [
                 (min_batch, 320, min_latent_height // 2, min_latent_width // 2), # min
                 (batch_size, 320, latent_height // 2, latent_width // 2), # opt
                 (max_batch, 320, max_latent_height // 2, max_latent_width // 2) # max
             ],
-            "contorl_4": [
+            "control_4": [
                 (min_batch, 640, min_latent_height // 2, min_latent_width // 2), # min
                 (batch_size, 640, latent_height // 2, latent_width // 2), # opt
                 (max_batch, 640, max_latent_height // 2, max_latent_width // 2) # max
             ],
-            "contorl_5": [
+            "control_5": [
                 (min_batch, 640, min_latent_height // 2, min_latent_width // 2), # min
                 (batch_size, 640, latent_height // 2, latent_width // 2), # opt
                 (max_batch, 640, max_latent_height // 2, max_latent_width // 2) # max
             ],
-            "contorl_6": [
+            "control_6": [
                 (min_batch, 640, min_latent_height // 4, min_latent_width // 4), # min
                 (batch_size, 640, latent_height // 4, latent_width // 4), # opt
                 (max_batch, 640, max_latent_height // 4, max_latent_width // 4) # max
             ],
-            "contorl_7": [
+            "control_7": [
                 (min_batch, 1280, min_latent_height // 4, min_latent_width // 4), # min
                 (batch_size, 1280, latent_height // 4, latent_width // 4), # opt
                 (max_batch, 1280, max_latent_height // 4, max_latent_width // 4) # max
             ],
-            "contorl_8": [
+            "control_8": [
                 (min_batch, 1280, min_latent_height // 4, min_latent_width // 4), # min
                 (batch_size, 1280, latent_height // 4, latent_width // 4), # opt
                 (max_batch, 1280, max_latent_height // 4, max_latent_width // 4) # max
             ],
-            "contorl_9": [
+            "control_9": [
                 (min_batch, 1280, min_latent_height // 8, min_latent_width // 8), # min
                 (batch_size, 1280, latent_height // 8, latent_width // 8), # opt
                 (max_batch, 1280, max_latent_height // 8, max_latent_width // 8) # max
             ],
-            "contorl_10": [
+            "control_10": [
                 (min_batch, 1280, min_latent_height // 8, min_latent_width // 8), # min
                 (batch_size, 1280, latent_height // 8, latent_width // 8), # opt
                 (max_batch, 1280, max_latent_height // 8, max_latent_width // 8) # max
             ],
-            "contorl_11": [
+            "control_11": [
                 (min_batch, 1280, min_latent_height // 8, min_latent_width // 8), # min
                 (batch_size, 1280, latent_height // 8, latent_width // 8), # opt
                 (max_batch, 1280, max_latent_height // 8, max_latent_width // 8) # max
             ],
-            "contorl_12": [
+            "control_12": [
                 (min_batch, 1280, min_latent_height // 8, min_latent_width // 8), # min
                 (batch_size, 1280, latent_height // 8, latent_width // 8), # opt
                 (max_batch, 1280, max_latent_height // 8, max_latent_width // 8) # max
@@ -598,19 +598,19 @@ class UNet(BaseModel):
             'sample': (batch_size, self.unet_dim, latent_height, latent_width),
             "timestep": (batch_size,),
             "context": (batch_size, self.text_maxlen, self.embedding_dim),
-            "contorl_0": (batch_size, 320, latent_height, latent_width),
-            "contorl_1": (batch_size, 320, latent_height, latent_width),
-            "contorl_2": (batch_size, 320, latent_height, latent_width),
-            "contorl_3": (batch_size, 320, latent_height // 2, latent_width // 2),
-            "contorl_4": (batch_size, 640, latent_height // 2, latent_width // 2),
-            "contorl_5": (batch_size, 640, latent_height // 2, latent_width // 2),
-            "contorl_6": (batch_size, 640, latent_height // 4, latent_width // 4),
-            "contorl_7": (batch_size, 1280, latent_height // 4, latent_width // 4),
-            "contorl_8": (batch_size, 1280, latent_height // 4, latent_width // 4),
-            "contorl_9": (batch_size, 1280, latent_height // 8, latent_width // 8),
-            "contorl_10": (batch_size, 1280, latent_height // 8, latent_width // 8),
-            "contorl_11": (batch_size, 1280, latent_height // 8, latent_width // 8),
-            "contorl_12": (batch_size, 1280, latent_height // 8, latent_width // 8),
+            "control_0": (batch_size, 320, latent_height, latent_width),
+            "control_1": (batch_size, 320, latent_height, latent_width),
+            "control_2": (batch_size, 320, latent_height, latent_width),
+            "control_3": (batch_size, 320, latent_height // 2, latent_width // 2),
+            "control_4": (batch_size, 640, latent_height // 2, latent_width // 2),
+            "control_5": (batch_size, 640, latent_height // 2, latent_width // 2),
+            "control_6": (batch_size, 640, latent_height // 4, latent_width // 4),
+            "control_7": (batch_size, 1280, latent_height // 4, latent_width // 4),
+            "control_8": (batch_size, 1280, latent_height // 4, latent_width // 4),
+            "control_9": (batch_size, 1280, latent_height // 8, latent_width // 8),
+            "control_10": (batch_size, 1280, latent_height // 8, latent_width // 8),
+            "control_11": (batch_size, 1280, latent_height // 8, latent_width // 8),
+            "control_12": (batch_size, 1280, latent_height // 8, latent_width // 8),
             'latent': (batch_size, self.unet_dim, latent_height, latent_width)
         }
 
@@ -638,7 +638,7 @@ class UNet(BaseModel):
                 device=self.device
             ),
             [
-                # "contorl_0": ["B", 320, "8H", "8W"],
+                # "control_0": ["B", 320, "8H", "8W"],
                 torch.randn(
                     batch_size,
                     320,
@@ -647,7 +647,7 @@ class UNet(BaseModel):
                     dtype=dtype,
                     device=self.device
                 ),
-                # "contorl_1": ["B", 320, "8H", "8W"],
+                # "control_1": ["B", 320, "8H", "8W"],
                 torch.randn(
                     batch_size,
                     320,
@@ -656,7 +656,7 @@ class UNet(BaseModel):
                     dtype=dtype,
                     device=self.device
                 ),
-                # "contorl_2": ["B", 320, "8H", "8W"],
+                # "control_2": ["B", 320, "8H", "8W"],
                 torch.randn(
                     batch_size,
                     320,
@@ -665,7 +665,7 @@ class UNet(BaseModel):
                     dtype=dtype,
                     device=self.device
                 ),
-                # "contorl_3": ["B", 320, "4H", "4W"],
+                # "control_3": ["B", 320, "4H", "4W"],
                 torch.randn(
                     batch_size,
                     320,
@@ -674,7 +674,7 @@ class UNet(BaseModel):
                     dtype=dtype,
                     device=self.device
                 ),
-                # "contorl_4": ["B", 640, "4H", "4W"],
+                # "control_4": ["B", 640, "4H", "4W"],
                 torch.randn(
                     batch_size,
                     640,
@@ -683,7 +683,7 @@ class UNet(BaseModel):
                     dtype=dtype,
                     device=self.device
                 ),
-                # "contorl_5": ["B", 640, "4H", "4W"],
+                # "control_5": ["B", 640, "4H", "4W"],
                 torch.randn(
                     batch_size,
                     640,
@@ -692,7 +692,7 @@ class UNet(BaseModel):
                     dtype=dtype,
                     device=self.device
                 ),
-                # "contorl_6": ["B", 640, "2H", "2W"],
+                # "control_6": ["B", 640, "2H", "2W"],
                 torch.randn(
                     batch_size,
                     640,
@@ -701,7 +701,7 @@ class UNet(BaseModel):
                     dtype=dtype,
                     device=self.device
                 ),
-                # "contorl_7": ["B", 1280, "2H", "2W"],
+                # "control_7": ["B", 1280, "2H", "2W"],
                 torch.randn(
                     batch_size,
                     1280,
@@ -710,7 +710,7 @@ class UNet(BaseModel):
                     dtype=dtype,
                     device=self.device
                 ),
-                # "contorl_8": ["B", 1280, "2H", "2W"],
+                # "control_8": ["B", 1280, "2H", "2W"],
                 torch.randn(
                     batch_size,
                     1280,
@@ -719,7 +719,7 @@ class UNet(BaseModel):
                     dtype=dtype,
                     device=self.device
                 ),
-                # "contorl_9": ["B", 1280, "H", "W"],
+                # "control_9": ["B", 1280, "H", "W"],
                 torch.randn(
                     batch_size,
                     1280,
@@ -728,7 +728,7 @@ class UNet(BaseModel):
                     dtype=dtype,
                     device=self.device
                 ),
-                # "contorl_10": ["B", 1280, "H", "W"],
+                # "control_10": ["B", 1280, "H", "W"],
                 torch.randn(
                     batch_size,
                     1280,
@@ -737,7 +737,7 @@ class UNet(BaseModel):
                     dtype=dtype,
                     device=self.device
                 ),
-                # "contorl_11": ["B", 1280, "H", "W"],
+                # "control_11": ["B", 1280, "H", "W"],
                 torch.randn(
                     batch_size,
                     1280,
@@ -746,7 +746,7 @@ class UNet(BaseModel):
                     dtype=dtype,
                     device=self.device
                 ),
-                # "contorl_12": ["B", 1280, "H", "W"],
+                # "control_12": ["B", 1280, "H", "W"],
                 torch.randn(
                     batch_size,
                     1280,

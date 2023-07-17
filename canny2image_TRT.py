@@ -202,8 +202,10 @@ class hackathon():
             padding="max_length",
             return_tensors="pt"
         )
-        tokens = batch_encoding["input_ids"].to(self.device)
-        return tokens
+        input_ids = batch_encoding["input_ids"].to(self.device)
+        return self.ddim_sampler.run_engine(
+            "clip", {"input_ids": input_ids}
+        )["text_embeddings"]
     
     def load_resources(self, image_height, image_width, batch_size, seed):
         # Initialize noise generator
