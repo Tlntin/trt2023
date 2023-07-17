@@ -21,7 +21,15 @@ from models import (get_embedding_dim, CLIP, ControlNet, UNet, VAE)
 from polygraphy import cuda
 import tensorrt as trt
 from utilities import Engine, TRT_DDIMSampler, TRT_LOGGER
-
+#-----------add for compare func -----------
+from polygraphy.backend.common import BytesFromPath
+from polygraphy.backend.onnx import BytesFromOnnx, ModifyOutputs as ModifyOnnxOutputs, OnnxFromPath
+from polygraphy.backend.onnxrt import OnnxrtRunner, SessionFromOnnx
+from polygraphy.backend.trt import EngineFromBytes, TrtRunner
+from polygraphy.common import TensorMetadata
+from polygraphy.comparator import Comparator, CompareFunc, DataLoader
+from polygraphy.exception import PolygraphyException
+from polygraphy import constants
 
 now_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -412,6 +420,11 @@ class hackathon():
                     workspace_size=self.max_workspace_size
                 )
             self.engine[model_name] = engine
+            # Compare the accuracy difference between onnx and engine
+            print("----------start compare acc of {} --------------".format(model_name))
+            self.compare_acc(model_name, onnx_opt_path, engine_path, obj, opt_batch_size, opt_image_height, opt_image_width, static_batch, static_shape)
+            print("----------end compare acc of {} --------------".format(model_name))
+
 
         # Load and activate TensorRT engines
         max_device_memory = 0
@@ -434,6 +447,46 @@ class hackathon():
         )
         for engine in self.engine.values():
             engine.activate(reuse_device_memory=self.shared_device_memory.ptr)
+
+    def compare_acc(
+            self,
+            model_name, #["clip", "control_net", "unet", "vae"]
+            onnx_path,
+            engine_path,
+            obj,
+            opt_batch_size,
+            opt_image_height,
+            opt_image_width,
+            static_batch,
+            static_shape
+        ):
+        input_profile=obj.get_input_profile(
+            opt_batch_size, opt_image_height, opt_image_width,
+            static_batch=static_batch, static_shape=static_shape
+        )
+
+        input_metadata=TensorMetadata()
+        for key in input_profile.keys():
+            input_metadata.add(key, dtype=np.float32, shape = input_profile[key][0], min_shape=None, max_shape=None)
+
+        data_loader = DataLoader(input_metadata=input_metadata)
+
+        #Loaders
+        build_onnxrt_session = SessionFromOnnx(onnx_path, providers=["CPUExecutionProvider"])
+        engine_bytes = BytesFromPath(engine_path)
+        deserialize_engine = EngineFromBytes(engine_bytes)
+
+        # Runners
+        runners = [
+            OnnxrtRunner(build_onnxrt_session),
+            TrtRunner(deserialize_engine),
+        ]
+
+        compare_func = CompareFunc.simple(rtol={'': 5e-3}, atol={'': 5e-3})
+        #Comparator
+        run_results = Comparator.run(runners, data_loader=data_loader)
+        Comparator.compare_accuracy(run_results, compare_func=compare_func)
+
 
     def process(
             self,
