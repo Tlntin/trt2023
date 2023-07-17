@@ -168,51 +168,23 @@ class CLIP(BaseModel):
         max_batch_size,
         embedding_dim
     ):
-        super(CLIP, self).__init__(device=device, verbose=verbose, max_batch_size=max_batch_size, embedding_dim=embedding_dim)
+        super(CLIP, self).__init__(
+            device=device,
+            verbose=verbose,
+            max_batch_size=max_batch_size,
+            embedding_dim=embedding_dim
+        )
         self.name = "CLIP"
         self.model = model
-        self.tokenizer = None
-        self.modules = None
     
-    # def pre_forward(self, text):
-    #     batch_encoding = self.tokenizer(
-    #         text, truncation=True, max_length=self.max_length, return_length=True,
-    #                                     return_overflowing_tokens=False, padding="max_length", return_tensors="pt")
-    #     tokens = batch_encoding["input_ids"].to(self.device)
-    #     return tokens
-
-    # def forward(self, input_ids: torch.Tensor):
-    #     outputs = self.transformer(
-    #         input_ids=input_ids,
-    #         output_hidden_states=bool(self.layer=="hidden")
-    #     )
-    #     return outputs.last_hidden_state
-    
-    # def __call__(self, input_ids: torch.Tensor):
-    #     return self.forward(input_ids)
-
     def get_model(self):
-        def forward(self, input_ids: torch.Tensor):
-            outputs = self.transformer(
-                input_ids=input_ids,
-                output_hidden_states=bool(self.layer=="hidden")
-            )
-            return outputs.last_hidden_state
-        self.model.forward = types.MethodType(forward, self.model)
-        return self.model
-        # --- or you can do this ---
-        # self.tokenizer = self.model.tokenizer 
-        # self.transformer = self.model.transformer
-        # self.modules = self.model.modules
-        # self.state_dict = self.model.state_dict
-        # self.layer = self.model.layer
-        # return self
+        return self.model.transformer
 
     def get_input_names(self):
         return ['input_ids']
 
     def get_output_names(self):
-       return ['text_embeddings']
+       return ["text_embeddings", "pooler_output"]
 
     def get_dynamic_axes(self):
         return {

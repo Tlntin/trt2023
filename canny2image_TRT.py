@@ -168,7 +168,7 @@ class hackathon():
         onnx_dir = os.path.join(output_dir, "onnx")
         if not os.path.exists(onnx_dir):
             os.makedirs(onnx_dir)
-        time_cache_path = os.path.join(output_dir, "time_cache_fp16.cache")
+        # time_cache_path = os.path.join(output_dir, "time_cache_fp16.cache")
         image_height = 256
         image_width = 384
         self.load_engines(
@@ -178,7 +178,6 @@ class hackathon():
             opt_batch_size=self.max_batch_size // 2,
             opt_image_height=image_height,
             opt_image_width=image_width,
-            timing_cache=time_cache_path,
         )
         # --- load resource --- #
         self.load_resources(
@@ -384,6 +383,10 @@ class hackathon():
             #     onnx_dir,
             #     opt=False
             # )
+            print(f"clear old {model_name} pytorch model")
+            delattr(getattr(self.model, model_name), "model")
+            gc.collect()
+            torch.cuda.empty_cache()
             onnx_opt_path = self.get_onnx_path(
                 model_name, onnx_dir
             )
@@ -408,10 +411,6 @@ class hackathon():
         # Load and activate TensorRT engines
         max_device_memory = 0
         for model_name in self.stages:
-            print(f"clear old {model_name} pytorch model")
-            delattr(getattr(self.model, model_name), "model")
-            gc.collect()
-            torch.cuda.empty_cache()
             engine = self.engine[model_name]
             engine.load()
             max_device_memory = max(
