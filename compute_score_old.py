@@ -2,6 +2,7 @@ import numpy as np
 from pytorch_fid import fid_score
 from pytorch_fid.inception import InceptionV3
 import cv2
+import os
 import datetime
 from canny2image_torch import hackathon
 
@@ -21,7 +22,7 @@ latencys = []
 hk = hackathon()
 hk.initialize()
 for i in range(20):
-    path = "/home/player/pictures_croped/bird_old"+ str(i) + ".jpg"
+    path = "/home/player/pictures_croped/bird_"+ str(i) + ".jpg"
     img = cv2.imread(path)
     start = datetime.datetime.now().timestamp()
     new_img = hk.process(img,
@@ -39,8 +40,12 @@ for i in range(20):
             100, 
             200)
     end = datetime.datetime.now().timestamp()
-    print("time cost is: ", (end-start)*1000)
-    new_path = "./bird_"+ str(i) + ".jpg"
+    print("time cost is: ", (end-start) * 1000)
+    now_dir = os.path.dirname(os.path.abspath(__file__))
+    output_dir = os.path.join(now_dir, "output")
+    if not os.path.exists(output_dir):
+        os.mkdir(output_dir)
+    new_path = os.path.join(output_dir, "bird_old"+ str(i) + ".jpg")
     cv2.imwrite(new_path, new_img[0])
     # generate the base_img by running the pytorch fp32 pipeline (origin code in canny2image_TRT.py)
     # base_path = "base_img.jpg"

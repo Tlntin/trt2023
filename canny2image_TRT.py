@@ -1,4 +1,3 @@
-from share import *
 import config
 
 # import cv2
@@ -12,14 +11,14 @@ from pytorch_lightning import seed_everything
 from annotator.util import resize_image, HWC3
 from annotator.canny import CannyDetector
 from cldm.model import create_model, load_state_dict
-from cldm.ddim_hacked import DDIMSampler
+# from cldm.ddim_hacked import DDIMSampler
 # ------------ new add ---------------
 import os
 import onnx
 from cuda import cudart
 from models import (get_embedding_dim, CLIP, ControlNet, UNet, VAE)
 from polygraphy import cuda
-from utilities import Engine
+from utilities import Engine, TRT_DDIMSampler
 
 
 now_dir = os.path.dirname(os.path.abspath(__file__))
@@ -90,6 +89,7 @@ class hackathon():
         self.use_cuda_graph = use_cuda_graph
         self.stream = None
         self.tokenizer = None
+        self.max_length = 0
         self.apply_canny = None
         self.ddim_sampler = None
         self.model = None
@@ -111,6 +111,7 @@ class hackathon():
                 temp_model = getattr(self.model.model, v)
             if k == "clip":
                 self.tokenizer = temp_model.tokenizer
+                self.max_length = temp_model.max_length
                 new_model = CLIP(
                     model=temp_model,
                     device=self.device,
@@ -153,7 +154,55 @@ class hackathon():
                 setattr(self.model, k, new_model)
             else:
                 raise Exception("Unknown stage")
-        self.ddim_sampler = DDIMSampler(self.model)
+        # --- build or load engine --- #
+        output_dir = os.path.join(now_dir, "output")
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        engine_dir = os.path.join(output_dir, "engine")
+        if not os.path.exists(engine_dir):
+            os.makedirs(engine_dir)
+        onnx_dir = os.path.join(output_dir, "onnx")
+        if not os.path.exists(onnx_dir):
+            os.makedirs(onnx_dir)
+        time_cache_path = os.path.join(output_dir, "time_cache_fp16.cache")
+        image_height = 256
+        image_width = 384
+        self.load_engines(
+            engine_dir=engine_dir,
+            onnx_dir=onnx_dir,
+            onnx_opset=17,
+            opt_batch_size=self.max_batch_size // 2,
+            opt_image_height=image_height,
+            opt_image_width=image_width,
+            timing_cache=time_cache_path,
+        )
+        # --- load resource --- #
+        self.load_resources(
+            image_height=image_height,
+            image_width=image_width,
+            batch_size=1,
+            seed=2946901
+        )
+        # --- use TRT DDIM Sample --- #
+        self.ddim_sampler = TRT_DDIMSampler(
+            model=self.model,
+            engine=self.engine,
+            stream=self.stream,
+            use_cuda_graph=self.use_cuda_graph
+        )
+    
+    def text_embedding(self, text_list: list):
+        batch_encoding = self.tokenizer(
+            text_list,
+            truncation=True,
+            max_length=self.max_length,
+            return_length=True,
+            return_overflowing_tokens=False,
+            padding="max_length",
+            return_tensors="pt"
+        )
+        tokens = batch_encoding["input_ids"].to(self.device)
+        return tokens
     
     def load_resources(self, image_height, image_width, batch_size, seed):
         # Initialize noise generator
@@ -343,7 +392,11 @@ class hackathon():
 
         # Load and activate TensorRT engines
         max_device_memory = 0
-        for model_name, obj in self.models.items():
+        for model_name in self.stages:
+            print(f"clear old {model_name} pytorch model")
+            delattr(getattr(self.model, model_name), "model")
+            gc.collect()
+            torch.cuda.empty_cache()
             engine = self.engine[model_name]
             engine.load()
             max_device_memory = max(
@@ -354,9 +407,11 @@ class hackathon():
             #     onnx_refit_path = self.getOnnxPath(model_name, onnx_refit_dir)
             #     if os.path.exists(onnx_refit_path):
             #         engine.refit(onnx_opt_path, onnx_refit_path)
+
         print("max device memory: ", max_device_memory)
+        print("max device memory (GB): ", round(max_device_memory / (1 << 30), 2))
         self.shared_device_memory = cuda.DeviceArray.raw(
-            (int(max_device_memory * 0.90),)
+            (int(max_device_memory),)
         )
         for engine in self.engine.values():
             engine.activate(reuse_device_memory=self.shared_device_memory.ptr)
@@ -399,25 +454,27 @@ class hackathon():
             cond = {
                 "c_concat": [control],
                 "c_crossattn": [
-                    self.model.get_learned_conditioning([prompt + ', ' + a_prompt] * num_samples)
+                    # self.model.get_learned_conditioning([prompt + ', ' + a_prompt] * num_samples)
+                    self.text_embedding([prompt + ', ' + a_prompt] * num_samples)
                 ]
             }
             un_cond = {
                 "c_concat": None if guess_mode else [control],
                 "c_crossattn": [
-                    self.model.get_learned_conditioning([n_prompt] * num_samples)
+                    # self.model.get_learned_conditioning([n_prompt] * num_samples)
+                    self.text_embedding([n_prompt] * num_samples)
                 ]
             }
             shape = (4, H // 8, W // 8)
 
-            if config.save_memory:
-                self.model.low_vram_shift(is_diffusing=True)
+            # if config.save_memory:
+            #     self.model.low_vram_shift(is_diffusing=True)
 
             # Magic number. IDK why. Perhaps because 0.825**12<0.01 but 0.826**12>0.01
             self.model.control_scales = [
                 strength * (0.825 ** float(12 - i)) for i in range(13)
             ] if guess_mode else ([strength] * 13) 
-            samples, intermediates = self.ddim_sampler.sample(
+            samples, _intermediates = self.ddim_sampler.sample(
                 ddim_steps,
                 num_samples,
                 shape,
@@ -428,10 +485,11 @@ class hackathon():
                 unconditional_conditioning=un_cond
             )
 
-            if config.save_memory:
-                self.model.low_vram_shift(is_diffusing=False)
+            # if config.save_memory:
+            #     self.model.low_vram_shift(is_diffusing=False)
 
-            x_samples = self.model.decode_first_stage(samples)
+            # x_samples = self.model.decode_first_stage(samples)
+            x_samples = self.ddim_sampler.decode_first_stage(samples)
             x_samples = (
                 einops.rearrange(x_samples, 'b c h w -> b h w c') * 127.5 + 127.5
             ).cpu().numpy().clip(0, 255).astype(np.uint8)
@@ -443,25 +501,3 @@ class hackathon():
 if __name__ == "__main__":
     hk = hackathon() 
     hk.initialize()
-    output_dir1 = os.path.join(now_dir, "output")
-    if not os.path.exists(output_dir1):
-        os.makedirs(output_dir1)
-    engine_dir1 = os.path.join(output_dir1, "engine")
-    if not os.path.exists(engine_dir1):
-        os.makedirs(engine_dir1)
-    onnx_dir1 = os.path.join(output_dir1, "onnx")
-    if not os.path.exists(onnx_dir1):
-        os.makedirs(onnx_dir1)
-    onnx_opset1 = 17
-    time_cache_path1 = os.path.join(output_dir1, "time_cache_fp16.cache")
-    hk.load_engines(
-        engine_dir=engine_dir1,
-        onnx_dir=onnx_dir1,
-        onnx_opset=onnx_opset1,
-        opt_batch_size=1,
-        opt_image_height=256,
-        opt_image_width=384,
-        timing_cache=time_cache_path1,
-        static_batch=True,
-        static_shape=True
-    )
