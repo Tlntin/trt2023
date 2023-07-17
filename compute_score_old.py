@@ -45,7 +45,7 @@ for i in range(20):
     output_dir = os.path.join(now_dir, "output")
     if not os.path.exists(output_dir):
         os.mkdir(output_dir)
-    new_path = os.path.join(output_dir, "bird_old"+ str(i) + ".jpg")
+    new_path = os.path.join(output_dir, "bird_old_"+ str(i) + ".jpg")
     cv2.imwrite(new_path, new_img[0])
     # generate the base_img by running the pytorch fp32 pipeline (origin code in canny2image_TRT.py)
     # base_path = "base_img.jpg"
