@@ -19,7 +19,8 @@ import onnx
 from cuda import cudart
 from models import (get_embedding_dim, CLIP, ControlNet, UNet, VAE)
 from polygraphy import cuda
-from utilities import Engine, TRT_DDIMSampler
+import tensorrt as trt
+from utilities import Engine, TRT_DDIMSampler, TRT_LOGGER
 
 
 now_dir = os.path.dirname(os.path.abspath(__file__))
@@ -66,10 +67,12 @@ class hackathon():
         self.de_noising_steps = de_noising_steps
         self.guidance_scale = guidance_scale
         self.max_batch_size = max_batch_size
+        # Register TensorRT plugins
+        trt.init_libnvinfer_plugins(TRT_LOGGER, '')
         _, free_mem, _ = cudart.cudaMemGetInfo()
-        one_gb = 1 ** 30
-        if free_mem > 12 * one_gb:
-            activate_memory = 8 * one_gb
+        one_gb = 2 ** 30
+        if free_mem > 6 * one_gb:
+            activate_memory = 4 * one_gb
             self.max_workspace_size = free_mem - activate_memory
         else:
             self.max_workspace_size = 0
@@ -193,19 +196,28 @@ class hackathon():
         )
     
     def text_embedding(self, text_list: list):
-        batch_encoding = self.tokenizer(
+        # batch_encoding = self.tokenizer(
+        #     text_list,
+        #     truncation=True,
+        #     max_length=self.max_length,
+        #     return_length=True,
+        #     return_overflowing_tokens=False,
+        #     padding="max_length",
+        #     return_tensors="pt"
+        # )
+        # input_ids = batch_encoding["input_ids"].int().to(self.device)
+        text_input_ids = self.tokenizer(
             text_list,
-            truncation=True,
-            max_length=self.max_length,
-            return_length=True,
-            return_overflowing_tokens=False,
             padding="max_length",
-            return_tensors="pt"
-        )
-        input_ids = batch_encoding["input_ids"].to(self.device)
-        return self.ddim_sampler.run_engine(
-            "clip", {"input_ids": input_ids}
-        )["text_embeddings"]
+            max_length=self.tokenizer.model_max_length,
+            truncation=True,
+            return_tensors="pt",
+        ).input_ids.type(torch.int32).to(self.device)
+        text_input_ids_inp = text_input_ids
+        text_embeddings = self.ddim_sampler.run_engine(
+            "clip", {"input_ids": text_input_ids_inp}
+        )["text_embeddings"].clone()
+        return text_embeddings
     
     def load_resources(self, image_height, image_width, batch_size, seed):
         # Initialize noise generator

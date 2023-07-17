@@ -236,14 +236,10 @@ class CLIP(BaseModel):
 
     def get_sample_input(self, batch_size, image_height, image_width):
         self.check_dims(batch_size, image_height, image_width)
-        return (
-            torch.arange(
-                0,
-                self.text_maxlen,
-                dtype=torch.int32,
-                device=self.device
-            ).unsqueeze(0).repeat(batch_size, 1),
+        return torch.zeros(
+            batch_size, self.text_maxlen, dtype=torch.int32, device=self.device
         )
+        
     def optimize(self, onnx_graph):
         opt = Optimizer(onnx_graph, verbose=self.verbose)
         opt.info(self.name + ': original')
