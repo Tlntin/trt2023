@@ -392,9 +392,14 @@ class hackathon():
             )
 
             if force_build or not os.path.exists(engine.engine_path):
+                if model_name == "clip":
+                    use_fp16 = False
+                else:
+                    use_fp16 = True
                 engine.build(
                     onnx_opt_path,
-                    fp16=True,
+                    # fp16=True,
+                    fp16=use_fp16,
                     input_profile=obj.get_input_profile(
                         opt_batch_size, opt_image_height, opt_image_width,
                         static_batch=static_batch, static_shape=static_shape
