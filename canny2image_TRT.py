@@ -116,7 +116,7 @@ class hackathon():
         self.apply_canny = CannyDetector()
         self.model = create_model('./models/cldm_v15.yaml').cpu()
         self.model.load_state_dict(
-            load_state_dict('./models/control_sd15_canny.pth')
+            load_state_dict('/home/player/ControlNet/models/control_sd15_canny.pth')
         )
         self.model = self.model.to(self.onnx_device)
         self.model = self.model.to(self.onnx_device)
