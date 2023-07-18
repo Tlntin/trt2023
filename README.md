@@ -197,22 +197,30 @@ python compute_score.py
 ```bash
 docker pull registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:v2
 ```
+
+- 再下载你的代码到/tmp/repo目录
+```bash
+cd /tmp
+git clone git@gitee.com:tlntin/SilentOptimizers.git
+mv SilentOptimizers /tmp/repo
+```
+
 - 运行预处理，生成onnx和engine
 ```bash
-docker run --rm -t --network none --gpus '0' --name hackathon -v /temp/repo/:/repo registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:v2 bash -c "cd /repo && bash preprocess.sh"
+docker run --rm -t --network none --gpus '0' --name hackathon -v /tmp/repo/:/repo registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:v2 bash -c "cd /repo && bash preprocess.sh"
 ```
 - 跑一下pytorch版(仅限本地)
 ```bash
-docker run --rm -t --network none --gpus '0' --name hackathon -v /temp/repo/:/repo registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:v2 bash -c "cd /repo && python3 compute_score_old.py" 
+docker run --rm -t --network none --gpus '0' --name hackathon -v /tmp/repo/:/repo registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:v2 bash -c "cd /repo && python3 compute_score_old.py" 
 ```
 
 - 跑一下TRT版(仅限本地)，并计算PD_score
 ```bash
-docker run --rm -t --network none --gpus '0' --name hackathon -v /temp/repo/:/repo registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:v2 bash -c "cd /repo && python3 compute_score_new.py" 
+docker run --rm -t --network none --gpus '0' --name hackathon -v /tmp/repo/:/repo registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:v2 bash -c "cd /repo && python3 compute_score_new.py" 
 ```
 
 - 跑一下TRT版(仅限本地)，测试一下测评代码是否ok
 ```bash
-docker run --rm -t --network none --gpus '0' --name hackathon -v /temp/repo/:/repo registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:v2 bash -c "cd /repo && python3 compute_score.py" 
+docker run --rm -t --network none --gpus '0' --name hackathon -v /tmp/repo/:/repo registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:v2 bash -c "cd /repo && python3 compute_score.py" 
 ```
 
