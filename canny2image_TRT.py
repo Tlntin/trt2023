@@ -16,6 +16,7 @@ from cldm.model import create_model, load_state_dict
 # ------------ new add ---------------
 import os
 import onnx
+import shutil
 from cuda import cudart
 from models import (get_embedding_dim, CLIP, ControlNet, UNet, VAE)
 from polygraphy import cuda
@@ -113,10 +114,11 @@ class hackathon():
 
     def initialize(self):
         self.apply_canny = CannyDetector()
-        self.model = create_model('./models/cldm_v15.yaml')
+        self.model = create_model('./models/cldm_v15.yaml').cpu()
         self.model.load_state_dict(
             load_state_dict('./models/control_sd15_canny.pth')
         )
+        self.model = self.model.to(self.onnx_device)
         self.model = self.model.to(self.onnx_device)
         for k, v in self.state_dict.items():
             if k != "unet":
@@ -159,7 +161,7 @@ class hackathon():
             elif k == "vae":
                 new_model = VAE(
                     model=temp_model,
-                    device=self.device,
+                    device=self.onnx_device,
                     verbose=self.verbose,
                     max_batch_size=self.max_batch_size,
                     embedding_dim=self.embedding_dim
@@ -272,15 +274,18 @@ class hackathon():
         return model_name
 
     def get_onnx_path(self, model_name, onnx_dir, opt=True):
+        save_dir = os.path.join(onnx_dir, model_name) + ('_opt' if opt else '')
+        if not os.path.exists(save_dir):
+            os.mkdir(save_dir)
         return os.path.join(
-            onnx_dir,
-            self.cached_model_name(model_name) + ('.opt' if opt else '') +'.onnx'
+            save_dir,
+            self.cached_model_name(model_name) +'.onnx'
         )
 
     def get_engine_path(self, model_name, engine_dir):
         return os.path.join(
             engine_dir,
-            self.cached_model_name(model_name)+'.plan'
+            self.cached_model_name(model_name) + '.plan'
         )
 
     def load_engines(
@@ -379,8 +384,19 @@ class hackathon():
                     # Optimize onnx
                     if force_optimize or not os.path.exists(onnx_opt_path):
                         print(f"Generating optimizing model: {onnx_opt_path}")
-                        onnx_opt_graph = obj.optimize(onnx.load(onnx_path, load_external_data=False))
+                        onnx_opt_graph = obj.optimize(onnx.load(
+                            onnx_path,
+                            load_external_data=False
+                        ))
                         onnx.save(onnx_opt_graph, onnx_opt_path)
+                        onnx_model_dir = os.path.dirname(onnx_path)
+                        onnx_opt_model_dir = os.path.dirname(onnx_opt_path)
+                        for file in os.listdir(onnx_model_dir):
+                            file_path = os.path.join(onnx_model_dir, file)
+                            if file_path == onnx_path:
+                                continue
+                            new_file_path = os.path.join(onnx_opt_model_dir, file)
+                            shutil.copy(file_path, new_file_path)
                     else:
                         print(f"Found cached optimized model: {onnx_opt_path} ")
 
@@ -389,24 +405,26 @@ class hackathon():
             obj = getattr(self.model, model_name)
             engine_path = self.get_engine_path(model_name, engine_dir)
             engine = Engine(engine_path)
-            # onnx_path = self.get_onnx_path(
-            #     model_name,
-            #     onnx_dir,
-            #     opt=False
-            # )
+            onnx_path = self.get_onnx_path(
+                model_name,
+                onnx_dir,
+                opt=False
+            )
             print(f"clear old {model_name} pytorch model")
             delattr(getattr(self.model, model_name), "model")
             gc.collect()
             torch.cuda.empty_cache()
+            # export TensorRT engine
             onnx_opt_path = self.get_onnx_path(
                 model_name, onnx_dir
             )
 
             if force_build or not os.path.exists(engine.engine_path):
-                if model_name == "clip":
-                    use_fp16 = False
-                else:
-                    use_fp16 = True
+                # if model_name in ["clip", "control_net", "vae"]:
+                #     use_fp16 = False
+                # else:
+                #     use_fp16 = True
+                use_fp16 = False
                 engine.build(
                     onnx_opt_path,
                     # fp16=True,
@@ -424,9 +442,21 @@ class hackathon():
                 )
             self.engine[model_name] = engine
             # Compare the accuracy difference between onnx and engine
-            print("----------start compare acc of {} --------------".format(model_name))
-            self.compare_acc(model_name, onnx_opt_path, engine_path, obj, opt_batch_size, opt_image_height, opt_image_width, static_batch, static_shape)
-            print("----------end compare acc of {} --------------".format(model_name))
+            print("")
+            print("-------- start compare acc of {} -------".format(model_name))
+            self.compare_acc(
+                model_name,
+                onnx_path,
+                engine_path,
+                obj,
+                opt_batch_size,
+                opt_image_height,
+                opt_image_width,
+                static_batch,
+                static_shape
+            )
+            print("-------- end compare acc of {} --------".format(model_name))
+            print("")
 
 
         # Load and activate TensorRT engines
