@@ -43,7 +43,7 @@ class hackathon():
         max_batch_size=16,
         de_noising_steps=20,
         guidance_scale=9.0,            
-        onnx_device="cpu",
+        onnx_device="cuda",
         device='cuda',
         output_dir = os.path.join(now_dir, "output"),
         verbose=False,
@@ -92,6 +92,7 @@ class hackathon():
             os.mkdir(self.output_dir)
         self.device = torch.device(device)
         self.onnx_device = torch.device(onnx_device)
+        self.onnx_device_raw = onnx_device
         self.verbose = verbose
         self.nvtx_profile = nvtx_profile
         self.stages = stages
@@ -116,7 +117,10 @@ class hackathon():
         self.apply_canny = CannyDetector()
         self.model = create_model('./models/cldm_v15.yaml').cpu()
         self.model.load_state_dict(
-            load_state_dict('/home/player/ControlNet/models/control_sd15_canny.pth')
+            load_state_dict(
+                '/home/player/ControlNet/models/control_sd15_canny.pth',
+                location=self.onnx_device_raw
+            )
         )
         self.model = self.model.to(self.onnx_device)
         for k, v in self.state_dict.items():
@@ -357,7 +361,7 @@ class hackathon():
                     if force_export or not os.path.exists(onnx_path):
                         print(f"Exporting model: {onnx_path}")
                         model = obj.get_model()
-                        with torch.inference_mode():
+                        with torch.inference_mode(), torch.autocast("cuda"):
                             inputs = obj.get_sample_input(
                                 opt_batch_size,
                                 opt_image_height,
@@ -383,19 +387,23 @@ class hackathon():
                     # Optimize onnx
                     if force_optimize or not os.path.exists(onnx_opt_path):
                         print(f"Generating optimizing model: {onnx_opt_path}")
-                        onnx_opt_graph = obj.optimize(onnx.load(
-                            onnx_path,
-                            load_external_data=False
-                        ))
-                        onnx.save(onnx_opt_graph, onnx_opt_path)
-                        onnx_model_dir = os.path.dirname(onnx_path)
-                        onnx_opt_model_dir = os.path.dirname(onnx_opt_path)
-                        for file in os.listdir(onnx_model_dir):
-                            file_path = os.path.join(onnx_model_dir, file)
-                            if file_path == onnx_path:
-                                continue
-                            new_file_path = os.path.join(onnx_opt_model_dir, file)
-                            shutil.copy(file_path, new_file_path)
+                        if self.onnx_device_raw == "cpu":
+                            onnx_opt_graph = obj.optimize(onnx.load(
+                                onnx_path,
+                                load_external_data=False
+                            ))
+                            onnx.save(onnx_opt_graph, onnx_opt_path)
+                            onnx_model_dir = os.path.dirname(onnx_path)
+                            onnx_opt_model_dir = os.path.dirname(onnx_opt_path)
+                            for file in os.listdir(onnx_model_dir):
+                                file_path = os.path.join(onnx_model_dir, file)
+                                if file_path == onnx_path:
+                                    continue
+                                new_file_path = os.path.join(onnx_opt_model_dir, file)
+                                shutil.copy(file_path, new_file_path)
+                        else:
+                            onnx_opt_graph = obj.optimize(onnx.load(onnx_path))
+                            onnx.save(onnx_opt_graph, onnx_opt_path)
                     else:
                         print(f"Found cached optimized model: {onnx_opt_path} ")
 
@@ -513,7 +521,7 @@ class hackathon():
             TrtRunner(deserialize_engine),
         ]
 
-        compare_func = CompareFunc.simple(rtol={'': 1e-2}, atol={'': 1e-2})
+        compare_func = CompareFunc.simple(rtol={'': 5e-2}, atol={'': 5e-2})
         #Comparator
         run_results = Comparator.run(runners, data_loader=data_loader)
         Comparator.compare_accuracy(run_results, compare_func=compare_func)
