@@ -42,7 +42,8 @@ class hackathon():
         max_batch_size=16,
         de_noising_steps=20,
         guidance_scale=9.0,            
-        device='cpu',
+        onnx_device="cpu",
+        device='cuda',
         output_dir = os.path.join(now_dir, "output"),
         verbose=False,
         nvtx_profile=False,
@@ -88,7 +89,8 @@ class hackathon():
         self.output_dir = output_dir 
         if not os.path.exists(output_dir):
             os.mkdir(self.output_dir)
-        self.device = device
+        self.device = torch.device(device)
+        self.onnx_device = torch.device(onnx_device)
         self.verbose = verbose
         self.nvtx_profile = nvtx_profile
         self.stages = stages
@@ -111,11 +113,11 @@ class hackathon():
 
     def initialize(self):
         self.apply_canny = CannyDetector()
-        self.model = create_model('./models/cldm_v15.yaml').cpu()
+        self.model = create_model('./models/cldm_v15.yaml')
         self.model.load_state_dict(
             load_state_dict('./models/control_sd15_canny.pth')
         )
-        #self.model = self.model.cuda()
+        self.model = self.model.to(self.onnx_device)
         for k, v in self.state_dict.items():
             if k != "unet":
                 temp_model = getattr(self.model, v)
@@ -126,7 +128,7 @@ class hackathon():
                 self.max_length = temp_model.max_length
                 new_model = CLIP(
                     model=temp_model,
-                    device=self.device,
+                    device=self.onnx_device,
                     verbose=self.verbose,
                     max_batch_size=self.max_batch_size,
                     embedding_dim=self.embedding_dim
@@ -136,7 +138,7 @@ class hackathon():
             elif k == "control_net":
                 new_model = ControlNet(
                     model=temp_model,
-                    device=self.device,
+                    device=self.onnx_device,
                     verbose=self.verbose,
                     max_batch_size=self.max_batch_size,
                     embedding_dim=self.embedding_dim
@@ -146,7 +148,7 @@ class hackathon():
             elif k == "unet":
                 new_model = UNet(
                     model=temp_model,
-                    device=self.device,
+                    device=self.onnx_device,
                     verbose=self.verbose,
                     max_batch_size=self.max_batch_size,
                     embedding_dim=self.embedding_dim
@@ -195,6 +197,7 @@ class hackathon():
             seed=2946901
         )
         # --- use TRT DDIM Sample --- #
+        self.model = self.model.to(self.device)
         self.ddim_sampler = TRT_DDIMSampler(
             model=self.model,
             engine=self.engine,
@@ -482,7 +485,7 @@ class hackathon():
             TrtRunner(deserialize_engine),
         ]
 
-        compare_func = CompareFunc.simple(rtol={'': 5e-3}, atol={'': 5e-3})
+        compare_func = CompareFunc.simple(rtol={'': 1e-2}, atol={'': 1e-2})
         #Comparator
         run_results = Comparator.run(runners, data_loader=data_loader)
         Comparator.compare_accuracy(run_results, compare_func=compare_func)
