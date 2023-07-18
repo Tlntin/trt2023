@@ -42,7 +42,7 @@ class hackathon():
         max_batch_size=16,
         de_noising_steps=20,
         guidance_scale=9.0,            
-        device='cuda',
+        device='cpu',
         output_dir = os.path.join(now_dir, "output"),
         verbose=False,
         nvtx_profile=False,
@@ -376,7 +376,7 @@ class hackathon():
                     # Optimize onnx
                     if force_optimize or not os.path.exists(onnx_opt_path):
                         print(f"Generating optimizing model: {onnx_opt_path}")
-                        onnx_opt_graph = obj.optimize(onnx.load(onnx_path))
+                        onnx_opt_graph = obj.optimize(onnx.load(onnx_path, load_external_data=False))
                         onnx.save(onnx_opt_graph, onnx_opt_path)
                     else:
                         print(f"Found cached optimized model: {onnx_opt_path} ")
