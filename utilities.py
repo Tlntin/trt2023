@@ -526,11 +526,11 @@ class TRT_DDIMSampler(object):
             "control_11",
             "control_12",
         ]
-        input_dict = {name: control_dict[name] for name in input_names}
+        input_dict = {name: control_dict[name].clone() for name in input_names}
         eps = self.run_engine(
             "unet",
             input_dict
-        )["latent"]
+        )["latent"].clone()
         return eps
     
     def decode_first_stage(self, z, predict_cids=False, force_not_quantize=False):

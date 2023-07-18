@@ -310,7 +310,7 @@ class hackathon():
         Export ONNX models first, if applicable.
 
         Args:
-            engine_dir (str):
+            engine_dir (str)max score is:  6.631080450426229:
                 Directory to write the TensorRT engines.
             onnx_dir (str):
                 Directory to write the ONNX models.
@@ -420,11 +420,10 @@ class hackathon():
             )
 
             if force_build or not os.path.exists(engine.engine_path):
-                # if model_name in ["clip", "control_net", "vae"]:
-                #     use_fp16 = False
-                # else:
-                #     use_fp16 = True
-                use_fp16 = False
+                if model_name == "clip":
+                    use_fp16 = False
+                else:
+                    use_fp16 = True
                 engine.build(
                     onnx_opt_path,
                     # fp16=True,
