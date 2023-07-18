@@ -119,7 +119,6 @@ class hackathon():
             load_state_dict('/home/player/ControlNet/models/control_sd15_canny.pth')
         )
         self.model = self.model.to(self.onnx_device)
-        self.model = self.model.to(self.onnx_device)
         for k, v in self.state_dict.items():
             if k != "unet":
                 temp_model = getattr(self.model, v)

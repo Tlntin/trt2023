@@ -20,7 +20,12 @@ class hackathon():
     def initialize(self):
         self.apply_canny = CannyDetector()
         self.model = create_model('./models/cldm_v15.yaml').cpu()
-        self.model.load_state_dict(load_state_dict('./models/control_sd15_canny.pth', location='cuda'))
+        self.model.load_state_dict(
+            load_state_dict(
+                '/home/player/ControlNet/models/control_sd15_canny.pth',
+                location='cuda',
+            )
+        )
         self.model = self.model.cuda()
         self.ddim_sampler = DDIMSampler(self.model)
 

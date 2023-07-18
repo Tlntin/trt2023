@@ -192,3 +192,27 @@ python compute_score_new.py
 python compute_score.py
 ```
 
+5. docker本地计算得分
+- 先拉一下最新代码，因为后面容器有做更新
+```bash
+docker pull registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:v2
+```
+- 运行预处理，生成onnx和engine
+```bash
+docker run --rm -t --network none --gpus '0' --name hackathon -v /temp/repo/:/repo registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:v2 bash -c "cd /repo && bash preprocess.sh"
+```
+- 跑一下pytorch版(仅限本地)
+```bash
+docker run --rm -t --network none --gpus '0' --name hackathon -v /temp/repo/:/repo registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:v2 bash -c "cd /repo && python3 compute_score_old.py" 
+```
+
+- 跑一下TRT版(仅限本地)，并计算PD_score
+```bash
+docker run --rm -t --network none --gpus '0' --name hackathon -v /temp/repo/:/repo registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:v2 bash -c "cd /repo && python3 compute_score_new.py" 
+```
+
+- 跑一下TRT版(仅限本地)，测试一下测评代码是否ok
+```bash
+docker run --rm -t --network none --gpus '0' --name hackathon -v /temp/repo/:/repo registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:v2 bash -c "cd /repo && python3 compute_score.py" 
+```
+
