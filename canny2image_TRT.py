@@ -48,7 +48,7 @@ class hackathon():
         output_dir = os.path.join(now_dir, "output"),
         verbose=False,
         nvtx_profile=False,
-        use_cuda_graph=False
+        use_cuda_graph=True
         ) -> None:
         """
         Initializes the hackathon pipeline.
