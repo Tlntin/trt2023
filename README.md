@@ -203,6 +203,7 @@ docker pull registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:v2
 cd /tmp
 git clone git@gitee.com:tlntin/SilentOptimizers.git
 mv SilentOptimizers /tmp/repo
+chmod 777 /tmp/repo
 ```
 
 - 运行预处理，生成onnx和engine
