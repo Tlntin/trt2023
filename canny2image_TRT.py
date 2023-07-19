@@ -48,7 +48,9 @@ class hackathon():
         output_dir = os.path.join(now_dir, "output"),
         verbose=False,
         nvtx_profile=False,
-        use_cuda_graph=True
+        use_cuda_graph=True,
+        do_summarize = False,
+        do_compare: bool = False
         ) -> None:
         """
         Initializes the hackathon pipeline.
@@ -77,6 +79,8 @@ class hackathon():
         self.de_noising_steps = de_noising_steps
         self.guidance_scale = guidance_scale
         self.max_batch_size = max_batch_size
+        self.do_summarize = do_summarize
+        self.do_compare = do_compare
         # Register TensorRT plugins
         trt.init_libnvinfer_plugins(TRT_LOGGER, '')
         _, free_mem, _ = cudart.cudaMemGetInfo()
@@ -110,6 +114,7 @@ class hackathon():
         self.ddim_sampler = None
         self.model = None
         self.engine = {}
+        self.events = {}
         self.shared_device_memory = None
         self.embedding_dim = get_embedding_dim(self.version)
 
@@ -206,7 +211,9 @@ class hackathon():
         self.ddim_sampler = TRT_DDIMSampler(
             model=self.model,
             engine=self.engine,
+            events=self.events,
             stream=self.stream,
+            do_summarize=self.do_summarize,
             use_cuda_graph=self.use_cuda_graph
         )
     
@@ -243,10 +250,14 @@ class hackathon():
         # self.scheduler.configure()
 
         # Create CUDA events and stream
-        self.events = {}
         for stage in self.stages:
-            for marker in ['start', 'stop']:
-                self.events[stage + '-' + marker] = cudart.cudaEventCreate()[1]
+            if stage != "control_net":
+                for marker in ['start', 'stop']:
+                    self.events[stage + '-' + marker] = cudart.cudaEventCreate()[1]
+            else:
+                for i in range(20):
+                    for marker in ['start', 'stop']:
+                        self.events[stage + "_{}".format(i) + '-' + marker] = cudart.cudaEventCreate()[1]
         self.stream = cuda.Stream()
 
         # Allocate buffers for TensorRT engine bindings
@@ -258,18 +269,20 @@ class hackathon():
                 device=self.device
             )
 
-    def teardown(self):
-        for e in self.events.values():
-            cudart.cudaEventDestroy(e)
+    def __del__(self):
+        for e in self.ddim_sampler.events.values():
+            del e
 
-        for engine in self.engine.values():
+        for engine in self.ddim_sampler.engine.values():
             del engine
 
         if self.shared_device_memory:
             self.shared_device_memory.free()
+        print("engine free")
 
-        self.stream.free()
+        self.ddim_sampler.stream.free()
         del self.stream
+        print("cuda stream free")
 
     def cached_model_name(self, model_name):
         # if self.inpaint:
@@ -447,22 +460,23 @@ class hackathon():
                     workspace_size=self.max_workspace_size
                 )
             self.engine[model_name] = engine
-            # Compare the accuracy difference between onnx and engine
-            print("")
-            print("-------- start compare acc of {} -------".format(model_name))
-            self.compare_acc(
-                model_name,
-                onnx_path,
-                engine_path,
-                obj,
-                opt_batch_size,
-                opt_image_height,
-                opt_image_width,
-                static_batch,
-                static_shape
-            )
-            print("-------- end compare acc of {} --------".format(model_name))
-            print("")
+            if self.do_compare:
+                # Compare the accuracy difference between onnx and engine
+                print("")
+                print("------ start compare acc of {} -----".format(model_name))
+                self.compare_acc(
+                    model_name,
+                    onnx_path,
+                    engine_path,
+                    obj,
+                    opt_batch_size,
+                    opt_image_height,
+                    opt_image_width,
+                    static_batch,
+                    static_shape
+                )
+                print("------ end compare acc of {} ------".format(model_name))
+                print("")
 
 
         # Load and activate TensorRT engines
@@ -525,8 +539,34 @@ class hackathon():
         #Comparator
         run_results = Comparator.run(runners, data_loader=data_loader)
         Comparator.compare_accuracy(run_results, compare_func=compare_func)
-
-
+    
+    def print_sumary(self):
+        print('|------------|--------------|')
+        print('| {:^25} | {:^12} |'.format('Module', 'Latency'))
+        print('|------------|--------------|')
+        print('| {:^25} | {:>9.2f} ms |'.format(
+            'CLIP',
+            cudart.cudaEventElapsedTime(
+                self.events['clip-start'],
+                self.events['clip-stop']
+            )[1]
+        ))
+        for index in range(self.de_noising_steps):
+            print('| {:^25} | {:>9.2f} ms |'.format(
+                'ControlNet_{} + Unet_{}'.format(index, index),
+                cudart.cudaEventElapsedTime(
+                    self.events[f'control_net_{index}-start'],
+                    self.events[f'control_net_{index}-stop']
+                )[1]
+            ))
+        print('| {:^25} | {:>9.2f} ms |'.format(
+            'VAE',
+            cudart.cudaEventElapsedTime(
+                self.events['vae-start'],
+                self.events['vae-stop']
+            )[1]
+        ))
+    
     def process(
             self,
             input_image: np.array,
@@ -542,7 +582,7 @@ class hackathon():
             seed: int,
             eta: float,
             low_threshold: float,
-            high_threshold: float
+            high_threshold: float,
         ):
         with torch.no_grad():
             img = resize_image(HWC3(input_image), image_resolution)
@@ -561,7 +601,8 @@ class hackathon():
 
             if config.save_memory:
                 self.model.low_vram_shift(is_diffusing=False)
-
+            if self.do_summarize:
+                cudart.cudaEventRecord(self.events['clip-start'], 0)
             cond = {
                 "c_concat": [control],
                 "c_crossattn": [
@@ -576,6 +617,8 @@ class hackathon():
                     self.text_embedding([n_prompt] * num_samples)
                 ]
             }
+            if self.do_summarize:
+                cudart.cudaEventRecord(self.events['clip-stop'], 0)
             shape = (4, H // 8, W // 8)
 
             # if config.save_memory:
@@ -593,22 +636,29 @@ class hackathon():
                 verbose=False,
                 eta=eta,
                 unconditional_guidance_scale=scale,
-                unconditional_conditioning=un_cond
+                unconditional_conditioning=un_cond,
+                do_summarize=self.do_summarize
             )
 
             # if config.save_memory:
             #     self.model.low_vram_shift(is_diffusing=False)
 
             # x_samples = self.model.decode_first_stage(samples)
+            if self.do_summarize:
+                cudart.cudaEventRecord(self.events['vae-start'], 0)
             x_samples = self.ddim_sampler.decode_first_stage(samples)
+            if self.do_summarize:
+                cudart.cudaEventRecord(self.events['vae-stop'], 0)
             x_samples = (
                 einops.rearrange(x_samples, 'b c h w -> b h w c') * 127.5 + 127.5
             ).cpu().numpy().clip(0, 255).astype(np.uint8)
 
             results = [x_samples[i] for i in range(num_samples)]
+            if self.do_summarize:
+                self.print_sumary()
         return results
-
+    
 
 if __name__ == "__main__":
-    hk = hackathon() 
+    hk = hackathon(do_compare=False) 
     hk.initialize()

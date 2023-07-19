@@ -26,7 +26,7 @@ def PD(base_img, new_img):
 
 scores = []
 latencys = []
-hk = hackathon()
+hk = hackathon(do_summarize=True)
 hk.initialize()
 max_score = 0
 for i in range(20):

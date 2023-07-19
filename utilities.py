@@ -295,7 +295,9 @@ class TRT_DDIMSampler(object):
             self,
             model,
             engine: dict,
+            events: dict,
             stream,
+            do_summarize: bool = False,
             use_cuda_graph: bool = False,
             schedule="linear", **kwargs
         ):
@@ -303,8 +305,10 @@ class TRT_DDIMSampler(object):
         self.model = model
         self.scale_factor = self.model.scale_factor
         self.engine = engine
+        self.events = events
         self.stream = stream
         self.use_cuda_graph = use_cuda_graph
+        self.do_summarize = do_summarize
         self.ddpm_num_timesteps = model.num_timesteps
         self.schedule = schedule
 
@@ -395,33 +399,51 @@ class TRT_DDIMSampler(object):
         size = (batch_size, C, H, W)
         print(f'Data shape for DDIM sampling is {size}, eta {eta}')
 
-        samples, intermediates = self.ddim_sampling(conditioning, size,
-                                                    callback=callback,
-                                                    img_callback=img_callback,
-                                                    quantize_denoised=quantize_x0,
-                                                    mask=mask, x0=x0,
-                                                    ddim_use_original_steps=False,
-                                                    noise_dropout=noise_dropout,
-                                                    temperature=temperature,
-                                                    score_corrector=score_corrector,
-                                                    corrector_kwargs=corrector_kwargs,
-                                                    x_T=x_T,
-                                                    log_every_t=log_every_t,
-                                                    unconditional_guidance_scale=unconditional_guidance_scale,
-                                                    unconditional_conditioning=unconditional_conditioning,
-                                                    dynamic_threshold=dynamic_threshold,
-                                                    ucg_schedule=ucg_schedule
-                                                    )
+        samples, intermediates = self.ddim_sampling(
+            conditioning,
+            size,
+            callback=callback,
+            img_callback=img_callback,
+            quantize_denoised=quantize_x0,
+            mask=mask, x0=x0,
+            ddim_use_original_steps=False,
+            noise_dropout=noise_dropout,
+            temperature=temperature,
+            score_corrector=score_corrector,
+            corrector_kwargs=corrector_kwargs,
+            x_T=x_T,
+            log_every_t=log_every_t,
+            unconditional_guidance_scale=unconditional_guidance_scale,
+            unconditional_conditioning=unconditional_conditioning,
+            dynamic_threshold=dynamic_threshold,
+            ucg_schedule=ucg_schedule,
+        )
+        
         return samples, intermediates
 
     @torch.no_grad()
-    def ddim_sampling(self, cond, shape,
-                      x_T=None, ddim_use_original_steps=False,
-                      callback=None, timesteps=None, quantize_denoised=False,
-                      mask=None, x0=None, img_callback=None, log_every_t=100,
-                      temperature=1., noise_dropout=0., score_corrector=None, corrector_kwargs=None,
-                      unconditional_guidance_scale=1., unconditional_conditioning=None, dynamic_threshold=None,
-                      ucg_schedule=None):
+    def ddim_sampling(
+        self,
+        cond,
+        shape,
+        x_T=None,
+        ddim_use_original_steps=False,
+        callback=None,
+        timesteps=None,
+        quantize_denoised=False,
+        mask=None,
+        x0=None,
+        img_callback=None,
+        log_every_t=100,
+        temperature=1.,
+        noise_dropout=0.,
+        score_corrector=None,
+        corrector_kwargs=None,
+        unconditional_guidance_scale=1.,
+        unconditional_conditioning=None,
+        dynamic_threshold=None,
+        ucg_schedule=None,
+    ):
         device = self.model.betas.device
         b = shape[0]
         if x_T is None:
@@ -463,8 +485,10 @@ class TRT_DDIMSampler(object):
                                       unconditional_conditioning=unconditional_conditioning,
                                       dynamic_threshold=dynamic_threshold)
             img, pred_x0 = outs
-            if callback: callback(i)
-            if img_callback: img_callback(pred_x0, i)
+            if callback:
+                callback(i)
+            if img_callback:
+                img_callback(pred_x0, i)
 
             if index % log_every_t == 0 or index == total_steps - 1:
                 intermediates['x_inter'].append(img)
@@ -479,11 +503,12 @@ class TRT_DDIMSampler(object):
         :params feed_dict: the input params dict
         """
         engine = self.engine[model_name]
-        return engine.infer(
+        result = engine.infer(
             feed_dict,
             self.stream,
             use_cuda_graph=self.use_cuda_graph
         )
+        return result
     
     def apply_model(self, x_noisy, t, cond, *args, **kwargs):
         """
@@ -573,8 +598,12 @@ class TRT_DDIMSampler(object):
         else:
             # model_t = self.model.apply_model(x, t, c)
             # model_uncond = self.model.apply_model(x, t, unconditional_conditioning)
+            if self.do_summarize:
+                cudart.cudaEventRecord(self.events[f'control_net_{index}-start'], 0)
             model_t = self.apply_model(x, t, c)
             model_uncond = self.apply_model(x, t, unconditional_conditioning)
+            if self.do_summarize:
+                cudart.cudaEventRecord(self.events[f'control_net_{index}-stop'], 0)
             model_output = model_uncond + unconditional_guidance_scale * (model_t - model_uncond)
 
         if self.model.parameterization == "v":
