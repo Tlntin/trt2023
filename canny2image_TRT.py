@@ -264,10 +264,17 @@ class hackathon():
         # for model_name, obj in self.models.items():
         for model_name in self.stages:
             obj = getattr(self.model, model_name)
-            self.engine[model_name].allocate_buffers(
-                shape_dict=obj.get_shape_dict(batch_size, image_height, image_width),
-                device=self.device
-            )
+            if model_name == 'unet' or model_name == 'control_net':
+                self.engine[model_name].allocate_buffers(
+                    shape_dict=obj.get_shape_dict(batch_size*2, image_height, image_width),
+                    device=self.device
+                )
+            else:
+                self.engine[model_name].allocate_buffers(
+                    shape_dict=obj.get_shape_dict(batch_size, image_height, image_width),
+                    device=self.device
+                )
+             
 
     def __del__(self):
         for e in self.ddim_sampler.events.values():

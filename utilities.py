@@ -510,12 +510,12 @@ class TRT_DDIMSampler(object):
         )
         return result
     
-    def apply_model(self, x_noisy, t, cond, *args, **kwargs):
+    def apply_model(self, x_noisy, t, c_concat_merge, c_crossattn_merge, *args, **kwargs):
         """
         need to replace pytorch with tensorRT
         """
-        assert isinstance(cond, dict)
-        cond_txt = torch.cat(cond['c_crossattn'], 1)
+        #assert isinstance(cond, dict)
+        #cond_txt = torch.cat(cond['c_crossattn'], 1)
 
         # if cond['c_concat'] is None:
         #     eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=None, only_mid_control=self.only_mid_control)
@@ -525,9 +525,10 @@ class TRT_DDIMSampler(object):
             "control_net",
             {
                 "sample": x_noisy,
-                "hint": torch.cat(cond['c_concat'], 1),
+                #"hint": torch.cat(cond['c_concat'], 1),
+                "hint": c_concat_merge,
                 "timestep": t,
-                "context": cond_txt
+                "context": c_crossattn_merge
             }
         )
         # self.control_scalres = [1] * n, ignore it
@@ -600,11 +601,23 @@ class TRT_DDIMSampler(object):
             # model_uncond = self.model.apply_model(x, t, unconditional_conditioning)
             if self.do_summarize:
                 cudart.cudaEventRecord(self.events[f'control_net_{index}-start'], 0)
-            model_t = self.apply_model(x, t, c)
-            model_uncond = self.apply_model(x, t, unconditional_conditioning)
+
+            c_c_concat_tensor = c['c_concat'][0]
+            c_c_crossattn_tensor = c['c_crossattn'][0]
+
+            unconditional_conditioning_c_concat_tensor = unconditional_conditioning['c_concat'][0]
+            unconditional_conditioning_c_crossattn_tensor = unconditional_conditioning['c_crossattn'][0]
+
+            c_concat_merge = torch.cat((c_c_concat_tensor, unconditional_conditioning_c_concat_tensor), dim=0)
+            c_crossattn_merge = torch.cat((c_c_crossattn_tensor, unconditional_conditioning_c_crossattn_tensor), dim=0)
+
+            model_uncond_merge = self.apply_model(x, t, c_concat_merge, c_crossattn_merge)
+            #model_t = self.apply_model(x, t, c)
+            #model_uncond = self.apply_model(x, t, unconditional_conditioning)
             if self.do_summarize:
                 cudart.cudaEventRecord(self.events[f'control_net_{index}-stop'], 0)
-            model_output = model_uncond + unconditional_guidance_scale * (model_t - model_uncond)
+            #model_output = model_uncond + unconditional_guidance_scale * (model_t - model_uncond)
+            model_output = model_uncond_merge[1] + unconditional_guidance_scale * (model_uncond_merge[0] - model_uncond_merge[1])
 
         if self.model.parameterization == "v":
             e_t = self.model.predict_eps_from_z_and_v(x, t, model_output)
