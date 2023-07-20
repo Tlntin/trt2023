@@ -233,8 +233,11 @@ class hackathon():
         ).input_ids.type(torch.int32).to(self.device)
         text_input_ids_inp = text_input_ids
         text_embeddings = self.ddim_sampler.run_engine(
-            "clip", {"input_ids": text_input_ids_inp}
-        )["text_embeddings"].clone()
+            "clip",
+            feed_dict={
+                "input_ids": text_input_ids_inp
+            }
+        )["text_embeddings"]
         return text_embeddings
     
     def load_resources(self, image_height, image_width, batch_size, seed):
