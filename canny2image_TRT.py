@@ -40,7 +40,7 @@ class hackathon():
         self,
         version="1.5",
         stages=["clip", "control_net", "unet", "vae"],
-        max_batch_size=16,
+        max_batch_size=4,
         de_noising_steps=20,
         guidance_scale=9.0,            
         onnx_device="cuda",
@@ -50,7 +50,8 @@ class hackathon():
         nvtx_profile=False,
         use_cuda_graph=True,
         do_summarize = False,
-        do_compare: bool = False
+        do_compare: bool = False,
+        optimization_level=5
         ) -> None:
         """
         Initializes the hackathon pipeline.
@@ -81,6 +82,7 @@ class hackathon():
         self.max_batch_size = max_batch_size
         self.do_summarize = do_summarize
         self.do_compare = do_compare
+        self.optimization_level = optimization_level
         # Register TensorRT plugins
         trt.init_libnvinfer_plugins(TRT_LOGGER, '')
         _, free_mem, _ = cudart.cudaMemGetInfo()
@@ -464,7 +466,8 @@ class hackathon():
                     enable_preview=enable_preview,
                     enable_all_tactics=enable_all_tactics,
                     timing_cache=timing_cache,
-                    workspace_size=self.max_workspace_size
+                    workspace_size=self.max_workspace_size,
+                    optimization_level=self.optimization_level
                 )
             self.engine[model_name] = engine
             if self.do_compare:

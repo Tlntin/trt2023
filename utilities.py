@@ -203,7 +203,7 @@ class Engine():
             print("Failed to refit!")
             exit(0)
 
-    def build(self, onnx_path, fp16, input_profile=None, enable_refit=False, enable_preview=False, enable_all_tactics=False, timing_cache=None, workspace_size=0):
+    def build(self, onnx_path, fp16, input_profile=None, enable_refit=False, enable_preview=False, enable_all_tactics=False, timing_cache=None, workspace_size=0, optimization_level= 3):
         print(f"Building TensorRT engine for {onnx_path}: {self.engine_path}")
         p = Profile()
         if input_profile:
@@ -228,6 +228,7 @@ class Engine():
                 refittable=enable_refit,
                 profiles=[p],
                 load_timing_cache=timing_cache,
+                builder_optimization_level = optimization_level,
                 **config_kwargs
             ),
             save_timing_cache=timing_cache
@@ -462,9 +463,9 @@ class TRT_DDIMSampler(object):
         total_steps = timesteps if ddim_use_original_steps else timesteps.shape[0]
         print(f"Running DDIM Sampling with {total_steps} timesteps")
 
-        # iterator = tqdm(time_range, desc='DDIM Sampler', total=total_steps)
+        iterator = tqdm(time_range, desc='DDIM Sampler', total=total_steps)
 
-        for i, step in enumerate(time_range):
+        for i, step in enumerate(iterator):
             index = total_steps - i - 1
             ts = torch.full((b,), step, device=device, dtype=torch.long)
 
