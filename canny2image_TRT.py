@@ -18,7 +18,7 @@ import os
 import onnx
 import shutil
 from cuda import cudart
-from models import (get_embedding_dim, CLIP, ControlNet, UNet, VAE)
+from models import (get_embedding_dim, CLIP, UnionModel, VAE)
 from polygraphy import cuda
 import tensorrt as trt
 from utilities import Engine, TRT_DDIMSampler, TRT_LOGGER
@@ -39,10 +39,10 @@ class hackathon():
     def __init__(
         self,
         version="1.5",
-        stages=["clip", "control_net", "unet", "vae"],
+        stages=["clip", "union_model", "vae"],
         max_batch_size=4,
         de_noising_steps=20,
-        guidance_scale=9.0,            
+        guidance_scale=9.0,
         onnx_device="cuda",
         device='cuda',
         output_dir = os.path.join(now_dir, "output"),
@@ -51,7 +51,7 @@ class hackathon():
         use_cuda_graph=True,
         do_summarize = False,
         do_compare: bool = False,
-        optimization_level=5
+        builder_optimization_level=5,
         ) -> None:
         """
         Initializes the hackathon pipeline.
@@ -82,7 +82,7 @@ class hackathon():
         self.max_batch_size = max_batch_size
         self.do_summarize = do_summarize
         self.do_compare = do_compare
-        self.optimization_level = optimization_level
+        self.builder_optimization_level = builder_optimization_level
         # Register TensorRT plugins
         trt.init_libnvinfer_plugins(TRT_LOGGER, '')
         _, free_mem, _ = cudart.cudaMemGetInfo()
@@ -110,6 +110,7 @@ class hackathon():
         }
         self.use_cuda_graph = use_cuda_graph
         self.stream = None
+        self.cuda_stream = None
         self.tokenizer = None
         self.max_length = 0
         self.apply_canny = None
@@ -147,27 +148,6 @@ class hackathon():
                 )
                 delattr(self.model, v)
                 setattr(self.model, k, new_model)
-            elif k == "control_net":
-                new_model = ControlNet(
-                    model=temp_model,
-                    device=self.onnx_device,
-                    verbose=self.verbose,
-                    max_batch_size=self.max_batch_size,
-                    embedding_dim=self.embedding_dim
-                )
-                delattr(self.model, v)
-                setattr(self.model, k, new_model)
-            elif k == "unet":
-                new_model = UNet(
-                    model=temp_model,
-                    device=self.onnx_device,
-                    verbose=self.verbose,
-                    max_batch_size=self.max_batch_size,
-                    embedding_dim=self.embedding_dim
-                )
-                delattr(self.model.model, v)
-                setattr(self.model, k, new_model)
-
             elif k == "vae":
                 new_model = VAE(
                     model=temp_model,
@@ -179,7 +159,20 @@ class hackathon():
                 delattr(self.model, v)
                 setattr(self.model, k, new_model)
             else:
-                raise Exception("Unknown stage")
+                pass
+        # merge control_net and unet
+        control_net_model = getattr(self.model, self.state_dict["control_net"])
+        unet_model = getattr(self.model.model, self.state_dict["unet"])
+        self.model.union_model = UnionModel(
+            control_model=control_net_model,
+            unet_model=unet_model,
+            device=self.device,
+            verbose=self.verbose,
+            max_batch_size=self.max_batch_size,
+            embedding_dim=self.embedding_dim
+        )
+        delattr(self.model, self.state_dict["control_net"])
+        delattr(self.model.model, self.state_dict["unet"])
         # --- build or load engine --- #
         output_dir = os.path.join(now_dir, "output")
         if not os.path.exists(output_dir):
@@ -215,6 +208,7 @@ class hackathon():
             engine=self.engine,
             events=self.events,
             stream=self.stream,
+            cuda_stream=self.cuda_stream,
             do_summarize=self.do_summarize,
             use_cuda_graph=self.use_cuda_graph
         )
@@ -253,7 +247,7 @@ class hackathon():
 
         # Create CUDA events and stream
         for stage in self.stages:
-            if stage != "control_net":
+            if stage != "union_model":
                 for marker in ['start', 'stop']:
                     self.events[stage + '-' + marker] = cudart.cudaEventCreate()[1]
             else:
@@ -261,12 +255,14 @@ class hackathon():
                     for marker in ['start', 'stop']:
                         self.events[stage + "_{}".format(i) + '-' + marker] = cudart.cudaEventCreate()[1]
         self.stream = cuda.Stream()
+        self.cuda_stream = cuda.Stream()
 
         # Allocate buffers for TensorRT engine bindings
         # for model_name, obj in self.models.items():
         for model_name in self.stages:
             obj = getattr(self.model, model_name)
-            if model_name == 'unet' or model_name == 'control_net':
+            # if model_name == 'unet' or model_name == 'control_net':
+            if model_name in ["clip", "union_model"]:
                 self.engine[model_name].allocate_buffers(
                     shape_dict=obj.get_shape_dict(batch_size*2, image_height, image_width),
                     device=self.device
@@ -291,6 +287,7 @@ class hackathon():
 
         self.ddim_sampler.stream.free()
         del self.stream
+        del self.cuda_stream
         print("cuda stream free")
 
     def cached_model_name(self, model_name):
@@ -409,23 +406,23 @@ class hackathon():
                     # Optimize onnx
                     if force_optimize or not os.path.exists(onnx_opt_path):
                         print(f"Generating optimizing model: {onnx_opt_path}")
-                        if self.onnx_device_raw == "cpu":
-                            onnx_opt_graph = obj.optimize(onnx.load(
-                                onnx_path,
-                                load_external_data=False
-                            ))
-                            onnx.save(onnx_opt_graph, onnx_opt_path)
-                            onnx_model_dir = os.path.dirname(onnx_path)
-                            onnx_opt_model_dir = os.path.dirname(onnx_opt_path)
-                            for file in os.listdir(onnx_model_dir):
-                                file_path = os.path.join(onnx_model_dir, file)
-                                if file_path == onnx_path:
-                                    continue
-                                new_file_path = os.path.join(onnx_opt_model_dir, file)
-                                shutil.copy(file_path, new_file_path)
-                        else:
-                            onnx_opt_graph = obj.optimize(onnx.load(onnx_path))
-                            onnx.save(onnx_opt_graph, onnx_opt_path)
+                        # if self.onnx_device_raw == "cpu":
+                        onnx_opt_graph = obj.optimize(onnx.load(
+                            onnx_path,
+                            load_external_data=False
+                        ))
+                        onnx.save(onnx_opt_graph, onnx_opt_path)
+                        onnx_model_dir = os.path.dirname(onnx_path)
+                        onnx_opt_model_dir = os.path.dirname(onnx_opt_path)
+                        for file in os.listdir(onnx_model_dir):
+                            file_path = os.path.join(onnx_model_dir, file)
+                            if file_path == onnx_path:
+                                continue
+                            new_file_path = os.path.join(onnx_opt_model_dir, file)
+                            shutil.copy(file_path, new_file_path)
+                        # else:
+                        #     onnx_opt_graph = obj.optimize(onnx.load(onnx_path))
+                        #     onnx.save(onnx_opt_graph, onnx_opt_path)
                     else:
                         print(f"Found cached optimized model: {onnx_opt_path} ")
 
@@ -467,7 +464,7 @@ class hackathon():
                     enable_all_tactics=enable_all_tactics,
                     timing_cache=timing_cache,
                     workspace_size=self.max_workspace_size,
-                    optimization_level=self.optimization_level
+                    builder_optimization_level=self.builder_optimization_level
                 )
             self.engine[model_name] = engine
             if self.do_compare:
@@ -565,8 +562,8 @@ class hackathon():
             print('| {:^25} | {:>9.2f} ms |'.format(
                 'ControlNet_{} + Unet_{}'.format(index, index),
                 cudart.cudaEventElapsedTime(
-                    self.events[f'control_net_{index}-start'],
-                    self.events[f'control_net_{index}-stop']
+                    self.events[f'union_model_{index}-start'],
+                    self.events[f'union_model_{index}-stop']
                 )[1]
             ))
         print('| {:^25} | {:>9.2f} ms |'.format(
@@ -613,18 +610,21 @@ class hackathon():
                 self.model.low_vram_shift(is_diffusing=False)
             if self.do_summarize:
                 cudart.cudaEventRecord(self.events['clip-start'], 0)
+            text_list = [prompt + ', ' + a_prompt] * num_samples + \
+                [n_prompt] * num_samples
+            text_embeds = self.text_embedding(text_list)
             cond = {
                 "c_concat": [control],
                 "c_crossattn": [
                     # self.model.get_learned_conditioning([prompt + ', ' + a_prompt] * num_samples)
-                    self.text_embedding([prompt + ', ' + a_prompt] * num_samples)
+                    text_embeds[:num_samples]
                 ]
             }
             un_cond = {
                 "c_concat": None if guess_mode else [control],
                 "c_crossattn": [
                     # self.model.get_learned_conditioning([n_prompt] * num_samples)
-                    self.text_embedding([n_prompt] * num_samples)
+                    text_embeds[num_samples:]
                 ]
             }
             if self.do_summarize:

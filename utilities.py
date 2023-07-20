@@ -203,7 +203,18 @@ class Engine():
             print("Failed to refit!")
             exit(0)
 
-    def build(self, onnx_path, fp16, input_profile=None, enable_refit=False, enable_preview=False, enable_all_tactics=False, timing_cache=None, workspace_size=0, optimization_level= 3):
+    def build(
+            self,
+            onnx_path,
+            fp16,
+            input_profile=None,
+            enable_refit=False,
+            enable_preview=False,
+            enable_all_tactics=False,
+            timing_cache=None,
+            workspace_size=0,
+            builder_optimization_level=3
+        ):
         print(f"Building TensorRT engine for {onnx_path}: {self.engine_path}")
         p = Profile()
         if input_profile:
@@ -221,14 +232,14 @@ class Engine():
             config_kwargs['memory_pool_limits'] = {trt.MemoryPoolType.WORKSPACE: workspace_size}
         if not enable_all_tactics:
             config_kwargs['tactic_sources'] = []
-
+        print("builder_optimization_level is ", builder_optimization_level)
         engine = engine_from_network(
             network_from_onnx_path(onnx_path, flags=[trt.OnnxParserFlag.NATIVE_INSTANCENORM]),
             config=CreateConfig(fp16=fp16,
                 refittable=enable_refit,
                 profiles=[p],
                 load_timing_cache=timing_cache,
-                builder_optimization_level = optimization_level,
+                builder_optimization_level=builder_optimization_level,
                 **config_kwargs
             ),
             save_timing_cache=timing_cache
@@ -259,7 +270,7 @@ class Engine():
             tensor = torch.empty(tuple(shape), dtype=numpy_to_torch_dtype_dict[dtype]).to(device=device)
             self.tensors[binding] = tensor
 
-    def infer(self, feed_dict, stream, use_cuda_graph=False):
+    def infer(self, feed_dict, stream, cuda_stream, use_cuda_graph=False):
         for name, buf in feed_dict.items():
             self.tensors[name].copy_(buf)
 
@@ -268,17 +279,17 @@ class Engine():
 
         if use_cuda_graph:
             if self.cuda_graph_instance is not None:
-                CUASSERT(cudart.cudaGraphLaunch(self.cuda_graph_instance, stream.ptr))
-                CUASSERT(cudart.cudaStreamSynchronize(stream.ptr))
+                CUASSERT(cudart.cudaGraphLaunch(self.cuda_graph_instance, cuda_stream.ptr))
+                CUASSERT(cudart.cudaStreamSynchronize(cuda_stream.ptr))
             else:
                 # do inference before CUDA graph capture
                 noerror = self.context.execute_async_v3(stream.ptr)
                 if not noerror:
                     raise ValueError(f"ERROR: inference failed.")
                 # capture cuda graph
-                CUASSERT(cudart.cudaStreamBeginCapture(stream.ptr, cudart.cudaStreamCaptureMode.cudaStreamCaptureModeGlobal))
-                self.context.execute_async_v3(stream.ptr)
-                self.graph = CUASSERT(cudart.cudaStreamEndCapture(stream.ptr))
+                CUASSERT(cudart.cudaStreamBeginCapture(cuda_stream.ptr, cudart.cudaStreamCaptureMode.cudaStreamCaptureModeGlobal))
+                self.context.execute_async_v3(cuda_stream.ptr)
+                self.graph = CUASSERT(cudart.cudaStreamEndCapture(cuda_stream.ptr))
                 self.cuda_graph_instance = CUASSERT(cudart.cudaGraphInstantiate(self.graph, 0))
         else:
             noerror = self.context.execute_async_v3(stream.ptr)
@@ -298,6 +309,7 @@ class TRT_DDIMSampler(object):
             engine: dict,
             events: dict,
             stream,
+            cuda_stream,
             do_summarize: bool = False,
             use_cuda_graph: bool = False,
             schedule="linear", **kwargs
@@ -308,6 +320,7 @@ class TRT_DDIMSampler(object):
         self.engine = engine
         self.events = events
         self.stream = stream
+        self.cuda_stream = cuda_stream
         self.use_cuda_graph = use_cuda_graph
         self.do_summarize = do_summarize
         self.ddpm_num_timesteps = model.num_timesteps
@@ -507,6 +520,7 @@ class TRT_DDIMSampler(object):
         result = engine.infer(
             feed_dict,
             self.stream,
+            self.cuda_stream,
             use_cuda_graph=self.use_cuda_graph
         )
         return result
@@ -523,7 +537,7 @@ class TRT_DDIMSampler(object):
         # else:
         # control = self.control_model(x=x_noisy, hint=torch.cat(cond['c_concat'], 1), timesteps=t, context=cond_txt)
         control_dict = self.run_engine(
-            "control_net",
+            "union_model",
             {
                 "sample": x_noisy,
                 #"hint": torch.cat(cond['c_concat'], 1),
@@ -535,29 +549,8 @@ class TRT_DDIMSampler(object):
         # self.control_scalres = [1] * n, ignore it
         # control = [c * scale for c, scale in zip(control, self.control_scales)]
         # eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=control, only_mid_control=self.only_mid_control)
-        input_names = [
-            "sample",
-            "timestep",
-            "context",
-            "control_0",
-            "control_1",
-            "control_2",
-            "control_3",
-            "control_4",
-            "control_5",
-            "control_6",
-            "control_7",
-            "control_8",
-            "control_9",
-            "control_10",
-            "control_11",
-            "control_12",
-        ]
-        input_dict = {name: control_dict[name].clone() for name in input_names}
-        eps = self.run_engine(
-            "unet",
-            input_dict
-        )["latent"].clone()
+        # eps = control_dict["latent"].clone()
+        eps = control_dict["latent"]
         return eps
     
     def decode_first_stage(self, z, predict_cids=False, force_not_quantize=False):
@@ -601,7 +594,7 @@ class TRT_DDIMSampler(object):
             # model_t = self.model.apply_model(x, t, c)
             # model_uncond = self.model.apply_model(x, t, unconditional_conditioning)
             if self.do_summarize:
-                cudart.cudaEventRecord(self.events[f'control_net_{index}-start'], 0)
+                cudart.cudaEventRecord(self.events[f'union_model_{index}-start'], 0)
 
             c_c_concat_tensor = c['c_concat'][0]
             c_c_crossattn_tensor = c['c_crossattn'][0]
@@ -616,7 +609,7 @@ class TRT_DDIMSampler(object):
             #model_t = self.apply_model(x, t, c)
             #model_uncond = self.apply_model(x, t, unconditional_conditioning)
             if self.do_summarize:
-                cudart.cudaEventRecord(self.events[f'control_net_{index}-stop'], 0)
+                cudart.cudaEventRecord(self.events[f'union_model_{index}-stop'], 0)
             #model_output = model_uncond + unconditional_guidance_scale * (model_t - model_uncond)
             model_output = model_uncond_merge[1] + unconditional_guidance_scale * (model_uncond_merge[0] - model_uncond_merge[1])
 
