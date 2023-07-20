@@ -171,38 +171,43 @@ docker exec -u player -it trt2023 /bin/bash
 # 此时终端长这样，可以看到是player用户
 # player@335a6e153173:~/ControlNet$ 
 ```
-5. 运行代码
-- 模型转onnx, onnx转trt, 检查精度
+
+
+### 其他
+
+##### 本地运行代码
+- 模型转onnx, onnx转trt, 检查精度，可以写到preprocess.sh
 ```bash
-python canny2image_TRT.py
+chomod +x preprocess.sh && ./preprocess.sh
 ```
 
-- pytorch版模型生成图片
+- pytorch版模型生成图片。建议把项目提供的canny2image_TRT.py这个文件拷贝一份，重命名为`canny2image_torch.py`。然后将`compute_score.py`复制一份为`compute_score_old.py`，将第7行的`from canny2image_TRT import hackathon`换成`from canny2image_torch import hackathon`，然后将55行左右的`"bird_"+ str(i) + ".jpg"`改成`"bird_old_"+ str(i) + ".jpg"`，这样后续可以将TensorRT生成的图片和pytorch生成的图片做对比，计算得分。
 ```bash
 python compute_score_old.py
 ```
 
-- TensorRT版模型生成图片，并计算PD_score
+- TensorRT版模型生成图片，并计算PD_score。将`compute_score.py`复制一份为`compute_score_new.py`，然后将pytorch生成的图片路径``"bird_old_"+ str(i) + ".jpg"``和TensorRT生成的图片路径``"bird_"+ str(i) + ".jpg"`两个做对比。取消注释`score = PD(base_path, new_path)`，这样就可以得到PDscore分数了。然后用两个列表收集每张图片计算得到的pd_score和time_cost，计算平均分和最大分，最后打印即可。**注意: PDscore大于12是没有分数的，建议本地测试的时候控制PDScore在10以内，因为在线测评可能比本地高一些。**
 ```bash
 python compute_score_new.py
 ```
 
-- TensorRT版模型生成图片，不计算PD_score(这是原版)
+- TensorRT版模型生成图片，不计算PD_score(这是原版)，一般你就运行一下，确保没bug就行。
 ```bash
 python compute_score.py
 ```
 
-5. docker本地计算得分
-- 先拉一下最新代码，因为后面容器有做更新
+##### docker容器本地模拟测试
+- 主要测试自己的代码能在提交的时候可以运行
+- 先拉一下最新容器，因为镜像可能有做更新
 ```bash
 docker pull registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:v2
 ```
 
-- 再下载你的代码到/tmp/repo目录
+- 下载你的代码到/tmp/repo目录(其他目录也行，放/tmp方便开机后自动清空)。注意：这里将这个目录设置为777权限了，这里解释一下。linux分三个权限，组权限，用户权限，以及宾客权限。相当于你家人，你本人，路人。对你的本机来说，docker容器的player用户就是路人，路上是没有写入权限的，相当于你家的锁，钥匙只有你和你家人有。解决办法就是对你要执行的目录执行授权就行。你可以直接通过chmod 777路径给与权限，意思就是给你家人，你，路人都能写入、执行、读取这个目录，这样就没有测评容器无法在本地目录写入的问题了。
 ```bash
 cd /tmp
-git clone git@gitee.com:tlntin/SilentOptimizers.git
-mv SilentOptimizers /tmp/repo
+git clone xxxx/xxxx.git
+mv xxxxx /tmp/repo
 chmod 777 /tmp/repo
 ```
 
@@ -210,12 +215,12 @@ chmod 777 /tmp/repo
 ```bash
 docker run --rm -t --network none --gpus '0' --name hackathon -v /tmp/repo/:/repo registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:v2 bash -c "cd /repo && bash preprocess.sh"
 ```
-- 跑一下pytorch版(仅限本地)
+- 跑一下pytorch版(仅限本地, 可选)
 ```bash
 docker run --rm -t --network none --gpus '0' --name hackathon -v /tmp/repo/:/repo registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:v2 bash -c "cd /repo && python3 compute_score_old.py" 
 ```
 
-- 跑一下TRT版(仅限本地)，并计算PD_score
+- 跑一下TRT版(仅限本地)，并计算PD_score, time_cost
 ```bash
 docker run --rm -t --network none --gpus '0' --name hackathon -v /tmp/repo/:/repo registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:v2 bash -c "cd /repo && python3 compute_score_new.py" 
 ```
@@ -224,4 +229,13 @@ docker run --rm -t --network none --gpus '0' --name hackathon -v /tmp/repo/:/rep
 ```bash
 docker run --rm -t --network none --gpus '0' --name hackathon -v /tmp/repo/:/repo registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:v2 bash -c "cd /repo && python3 compute_score.py" 
 ```
+
+##### 评分规则猜想
+- 根据我最近几次的提交记录，大概可以得出一个评分公式（可能也一定对）, 先说几个关键系数。
+- 提分系数1：TRT优化倍数。你跑一下pytorch版，算一下平均推理时间，然后再跑一下TRT版，算一下TRT的推理平均分，两者相除，就是优化倍数。比如pytorch推理2700ms, trt推理 900ms，优化倍数就是3倍。如果优化倍数低于0.01，我猜可能就没分了。
+- 提分系数2： PDScore优化倍数。最大容忍PDScore是12，你的TRT PDscore如果是6，那么这个精度就是1 / (1 - 6 / 12) =  2，如果你大于12，那就是0，甚至负分（群主大佬应该优化了，现在没有负分了，最低是0）。
+- 最后，这个公式大概就是（pytorch推理时间/TRT推理时间）* （1 / (你的PDScore / 12)）* 某个常数
+- 这个常数我估摸大概是300-400左右。上面的变量都是指的是平均值。
+- 所以建议大家在线上测评前先估摸一下自己的分数大概是多少，如果有一定提升，再线上测评，这样也可以节省一些算力以及等待时间。
+- 最后说一句：这个只是猜测，最终得分还是要以线上测评为准的。
 
