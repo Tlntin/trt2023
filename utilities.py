@@ -258,7 +258,7 @@ class Engine():
             tensor = torch.empty(tuple(shape), dtype=numpy_to_torch_dtype_dict[dtype]).to(device=device)
             self.tensors[binding] = tensor
 
-    def infer(self, feed_dict, stream, use_cuda_graph=False):
+    def infer(self, feed_dict, stream, cuda_stream, use_cuda_graph=False):
         for name, buf in feed_dict.items():
             self.tensors[name].copy_(buf)
 
@@ -267,17 +267,17 @@ class Engine():
 
         if use_cuda_graph:
             if self.cuda_graph_instance is not None:
-                CUASSERT(cudart.cudaGraphLaunch(self.cuda_graph_instance, stream.ptr))
-                CUASSERT(cudart.cudaStreamSynchronize(stream.ptr))
+                CUASSERT(cudart.cudaGraphLaunch(self.cuda_graph_instance, cuda_stream.ptr))
+                CUASSERT(cudart.cudaStreamSynchronize(cuda_stream.ptr))
             else:
                 # do inference before CUDA graph capture
                 noerror = self.context.execute_async_v3(stream.ptr)
                 if not noerror:
                     raise ValueError(f"ERROR: inference failed.")
                 # capture cuda graph
-                CUASSERT(cudart.cudaStreamBeginCapture(stream.ptr, cudart.cudaStreamCaptureMode.cudaStreamCaptureModeGlobal))
-                self.context.execute_async_v3(stream.ptr)
-                self.graph = CUASSERT(cudart.cudaStreamEndCapture(stream.ptr))
+                CUASSERT(cudart.cudaStreamBeginCapture(cuda_stream.ptr, cudart.cudaStreamCaptureMode.cudaStreamCaptureModeGlobal))
+                self.context.execute_async_v3(cuda_stream.ptr)
+                self.graph = CUASSERT(cudart.cudaStreamEndCapture(cuda_stream.ptr))
                 self.cuda_graph_instance = CUASSERT(cudart.cudaGraphInstantiate(self.graph, 0))
         else:
             noerror = self.context.execute_async_v3(stream.ptr)
@@ -297,6 +297,7 @@ class TRT_DDIMSampler(object):
             engine: dict,
             events: dict,
             stream,
+            cuda_stream,
             do_summarize: bool = False,
             use_cuda_graph: bool = False,
             schedule="linear", **kwargs
@@ -307,6 +308,7 @@ class TRT_DDIMSampler(object):
         self.engine = engine
         self.events = events
         self.stream = stream
+        self.cuda_stream = cuda_stream
         self.use_cuda_graph = use_cuda_graph
         self.do_summarize = do_summarize
         self.ddpm_num_timesteps = model.num_timesteps
@@ -506,6 +508,7 @@ class TRT_DDIMSampler(object):
         result = engine.infer(
             feed_dict,
             self.stream,
+            self.cuda_stream,
             use_cuda_graph=self.use_cuda_graph
         )
         return result

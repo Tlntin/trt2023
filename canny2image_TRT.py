@@ -108,6 +108,7 @@ class hackathon():
         }
         self.use_cuda_graph = use_cuda_graph
         self.stream = None
+        self.cuda_stream = None
         self.tokenizer = None
         self.max_length = 0
         self.apply_canny = None
@@ -205,6 +206,7 @@ class hackathon():
             engine=self.engine,
             events=self.events,
             stream=self.stream,
+            cuda_stream=self.cuda_stream,
             do_summarize=self.do_summarize,
             use_cuda_graph=self.use_cuda_graph
         )
@@ -251,13 +253,14 @@ class hackathon():
                     for marker in ['start', 'stop']:
                         self.events[stage + "_{}".format(i) + '-' + marker] = cudart.cudaEventCreate()[1]
         self.stream = cuda.Stream()
+        self.cuda_stream = cuda.Stream()
 
         # Allocate buffers for TensorRT engine bindings
         # for model_name, obj in self.models.items():
         for model_name in self.stages:
             obj = getattr(self.model, model_name)
             # if model_name == 'unet' or model_name == 'control_net':
-            if model_name == 'union_model':
+            if model_name in ["clip", "union_model"]:
                 self.engine[model_name].allocate_buffers(
                     shape_dict=obj.get_shape_dict(batch_size*2, image_height, image_width),
                     device=self.device
@@ -282,6 +285,7 @@ class hackathon():
 
         self.ddim_sampler.stream.free()
         del self.stream
+        del self.cuda_stream
         print("cuda stream free")
 
     def cached_model_name(self, model_name):
@@ -603,18 +607,21 @@ class hackathon():
                 self.model.low_vram_shift(is_diffusing=False)
             if self.do_summarize:
                 cudart.cudaEventRecord(self.events['clip-start'], 0)
+            text_list = [prompt + ', ' + a_prompt] * num_samples + \
+                [n_prompt] * num_samples
+            text_embeds = self.text_embedding(text_list)
             cond = {
                 "c_concat": [control],
                 "c_crossattn": [
                     # self.model.get_learned_conditioning([prompt + ', ' + a_prompt] * num_samples)
-                    self.text_embedding([prompt + ', ' + a_prompt] * num_samples)
+                    text_embeds[:num_samples]
                 ]
             }
             un_cond = {
                 "c_concat": None if guess_mode else [control],
                 "c_crossattn": [
                     # self.model.get_learned_conditioning([n_prompt] * num_samples)
-                    self.text_embedding([n_prompt] * num_samples)
+                    text_embeds[num_samples:]
                 ]
             }
             if self.do_summarize:
