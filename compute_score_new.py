@@ -29,6 +29,8 @@ latencys = []
 hk = hackathon(do_summarize=True)
 hk.initialize()
 max_score = 0
+score_list = []
+time_list = []
 for i in range(20):
     path = "/home/player/pictures_croped/bird_"+ str(i) + ".jpg"
     img = cv2.imread(path)
@@ -48,7 +50,8 @@ for i in range(20):
             100, 
             200)
     end = datetime.datetime.now().timestamp()
-    print("time cost is: ", (end-start)*1000)
+    print("time cost is: ", (end - start) * 1000)
+    time_list.append((end - start) * 1000)
     now_dir = os.path.dirname(os.path.abspath(__file__))
     output_dir = os.path.join(now_dir, "output")
     new_path = "./bird_"+ str(i) + ".jpg"
@@ -57,10 +60,12 @@ for i in range(20):
     # generate the base_img by running the pytorch fp32 pipeline (origin code in canny2image_TRT.py)
     # base_path = "base_img.jpg"
     score = PD(old_path, new_path)
+    score_list.append(score)
     print("score is: ", score)
     if score > 12:
         print(stylize("score is too high, please check the output image", fg("red")))
-    if score > max_score:
-        max_score = score
-print("max score is: ", max_score)
+avg_score = sum(score_list) / len(score_list)
+avg_time = sum(time_list) / len(time_list)
+print("PD score, max is {:.4f}, avg: {:.4f}: ".format(max(score_list), avg_score))
+print("time cost, max is {:.2f}ms, avg: {:.2f}ms: ".format(max(time_list), avg_time))
 
