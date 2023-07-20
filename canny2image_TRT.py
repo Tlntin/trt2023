@@ -18,7 +18,7 @@ import os
 import onnx
 import shutil
 from cuda import cudart
-from models import (get_embedding_dim, CLIP, ControlNet, UNet, VAE)
+from models import (get_embedding_dim, CLIP, UnionModel, VAE)
 from polygraphy import cuda
 import tensorrt as trt
 from utilities import Engine, TRT_DDIMSampler, TRT_LOGGER
@@ -39,7 +39,7 @@ class hackathon():
     def __init__(
         self,
         version="1.5",
-        stages=["clip", "control_net", "unet", "vae"],
+        stages=["clip", "union_model", "vae"],
         max_batch_size=16,
         de_noising_steps=20,
         guidance_scale=9.0,            
@@ -145,27 +145,6 @@ class hackathon():
                 )
                 delattr(self.model, v)
                 setattr(self.model, k, new_model)
-            elif k == "control_net":
-                new_model = ControlNet(
-                    model=temp_model,
-                    device=self.onnx_device,
-                    verbose=self.verbose,
-                    max_batch_size=self.max_batch_size,
-                    embedding_dim=self.embedding_dim
-                )
-                delattr(self.model, v)
-                setattr(self.model, k, new_model)
-            elif k == "unet":
-                new_model = UNet(
-                    model=temp_model,
-                    device=self.onnx_device,
-                    verbose=self.verbose,
-                    max_batch_size=self.max_batch_size,
-                    embedding_dim=self.embedding_dim
-                )
-                delattr(self.model.model, v)
-                setattr(self.model, k, new_model)
-
             elif k == "vae":
                 new_model = VAE(
                     model=temp_model,
@@ -177,7 +156,20 @@ class hackathon():
                 delattr(self.model, v)
                 setattr(self.model, k, new_model)
             else:
-                raise Exception("Unknown stage")
+                pass
+        # merge control_net and unet
+        control_net_model = getattr(self.model, self.state_dict["control_net"])
+        unet_model = getattr(self.model.model, self.state_dict["unet"])
+        self.model.union_model = UnionModel(
+            control_model=control_net_model,
+            unet_model=unet_model,
+            device=self.device,
+            verbose=self.verbose,
+            max_batch_size=self.max_batch_size,
+            embedding_dim=self.embedding_dim
+        )
+        delattr(self.model, self.state_dict["control_net"])
+        delattr(self.model.model, self.state_dict["unet"])
         # --- build or load engine --- #
         output_dir = os.path.join(now_dir, "output")
         if not os.path.exists(output_dir):
@@ -251,7 +243,7 @@ class hackathon():
 
         # Create CUDA events and stream
         for stage in self.stages:
-            if stage != "control_net":
+            if stage != "union_model":
                 for marker in ['start', 'stop']:
                     self.events[stage + '-' + marker] = cudart.cudaEventCreate()[1]
             else:
@@ -264,7 +256,8 @@ class hackathon():
         # for model_name, obj in self.models.items():
         for model_name in self.stages:
             obj = getattr(self.model, model_name)
-            if model_name == 'unet' or model_name == 'control_net':
+            # if model_name == 'unet' or model_name == 'control_net':
+            if model_name == 'union_model':
                 self.engine[model_name].allocate_buffers(
                     shape_dict=obj.get_shape_dict(batch_size*2, image_height, image_width),
                     device=self.device
@@ -407,23 +400,23 @@ class hackathon():
                     # Optimize onnx
                     if force_optimize or not os.path.exists(onnx_opt_path):
                         print(f"Generating optimizing model: {onnx_opt_path}")
-                        if self.onnx_device_raw == "cpu":
-                            onnx_opt_graph = obj.optimize(onnx.load(
-                                onnx_path,
-                                load_external_data=False
-                            ))
-                            onnx.save(onnx_opt_graph, onnx_opt_path)
-                            onnx_model_dir = os.path.dirname(onnx_path)
-                            onnx_opt_model_dir = os.path.dirname(onnx_opt_path)
-                            for file in os.listdir(onnx_model_dir):
-                                file_path = os.path.join(onnx_model_dir, file)
-                                if file_path == onnx_path:
-                                    continue
-                                new_file_path = os.path.join(onnx_opt_model_dir, file)
-                                shutil.copy(file_path, new_file_path)
-                        else:
-                            onnx_opt_graph = obj.optimize(onnx.load(onnx_path))
-                            onnx.save(onnx_opt_graph, onnx_opt_path)
+                        # if self.onnx_device_raw == "cpu":
+                        onnx_opt_graph = obj.optimize(onnx.load(
+                            onnx_path,
+                            load_external_data=False
+                        ))
+                        onnx.save(onnx_opt_graph, onnx_opt_path)
+                        onnx_model_dir = os.path.dirname(onnx_path)
+                        onnx_opt_model_dir = os.path.dirname(onnx_opt_path)
+                        for file in os.listdir(onnx_model_dir):
+                            file_path = os.path.join(onnx_model_dir, file)
+                            if file_path == onnx_path:
+                                continue
+                            new_file_path = os.path.join(onnx_opt_model_dir, file)
+                            shutil.copy(file_path, new_file_path)
+                        # else:
+                        #     onnx_opt_graph = obj.optimize(onnx.load(onnx_path))
+                        #     onnx.save(onnx_opt_graph, onnx_opt_path)
                     else:
                         print(f"Found cached optimized model: {onnx_opt_path} ")
 
@@ -562,8 +555,8 @@ class hackathon():
             print('| {:^25} | {:>9.2f} ms |'.format(
                 'ControlNet_{} + Unet_{}'.format(index, index),
                 cudart.cudaEventElapsedTime(
-                    self.events[f'control_net_{index}-start'],
-                    self.events[f'control_net_{index}-stop']
+                    self.events[f'union_model_{index}-start'],
+                    self.events[f'union_model_{index}-stop']
                 )[1]
             ))
         print('| {:^25} | {:>9.2f} ms |'.format(

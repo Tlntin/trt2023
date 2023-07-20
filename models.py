@@ -727,6 +727,154 @@ class UNet(BaseModel):
         )
 
 
+class MyTempModel(torch.nn.Module):
+    def __init__(self, control_model, unet_model):
+        super(MyTempModel, self).__init__()
+        self.control_model = control_model
+        self.unet_model = unet_model
+
+    def forward(self, sample, hint, timestep, context):
+        control = self.control_model(sample, hint, timestep, context)
+        latent = self.unet_model(sample, timestep, context, control)
+        return latent
+
+
+
+class UnionModel(BaseModel):
+    def __init__(self,
+        control_model,
+        unet_model,
+        fp16=False,
+        device='cuda',
+        verbose=True,
+        max_batch_size=16,
+        embedding_dim=768,
+        text_maxlen=77,
+        unet_dim=4
+    ):
+        super(UnionModel, self).__init__(
+            fp16=fp16,
+            device=device,
+            verbose=verbose,
+            max_batch_size=max_batch_size,
+            embedding_dim=embedding_dim,
+            text_maxlen=text_maxlen
+        )
+        self.unet_dim = unet_dim
+        self.name = "UnionModel"
+        self.model = MyTempModel(control_model, unet_model)
+
+    def get_model(self):
+        # model_opts = {'revision': 'fp16', 'torch_dtype': torch.float16} if self.fp16 else {}
+        if self.fp16:
+            self.model = self.model.to(device=self.device, dtype=torch.float16)
+        return self.model
+
+    def get_input_names(self):
+        return [
+            "sample",
+            "hint",
+            "timestep",
+            "context"
+        ]
+
+    def get_output_names(self):
+        return ['latent']
+
+    def get_dynamic_axes(self):
+        return {
+            'sample': {0: 'B', 2: 'H', 3: 'W'},
+            "hint": {0: 'B', 2: 'height', 3: 'width'},
+            "timestep": {0: 'B'},
+            "context": {0: 'B'},
+            'latent': {0: 'B', 2: 'H', 3: 'W'}
+        }
+
+    def get_input_profile(self, batch_size, image_height, image_width, static_batch, static_shape):
+        latent_height, latent_width = self.check_dims(batch_size, image_height, image_width)
+        (
+            min_batch, max_batch,
+            min_image_height, max_image_height,
+            min_image_width, max_image_width,
+            min_latent_height, max_latent_height,
+            min_latent_width, max_latent_width 
+        ) = \
+            self.get_minmax_dims(
+                batch_size,
+                image_height,
+                image_width,
+                static_batch,
+                static_shape
+            )
+        return {
+            'sample': [
+                (min_batch, self.unet_dim, min_latent_height, min_latent_width), # min
+                (batch_size, self.unet_dim, latent_height, latent_width), # opt
+                (max_batch, self.unet_dim, max_latent_height, max_latent_width) # max
+            ],
+            "hint": [
+                (min_batch, 3, min_image_height, min_image_width), # min
+                (batch_size, 3, image_height, image_width), # opt
+                (max_batch, 3, max_image_height, max_image_width) # max
+            ],
+            "timestep": [
+                (min_batch,),     
+                (batch_size,),
+                (max_batch,)
+            ],
+            "context": [
+                (min_batch, self.text_maxlen, self.embedding_dim),
+                (batch_size, self.text_maxlen, self.embedding_dim),
+                (max_batch, self.text_maxlen, self.embedding_dim)
+            ],
+        }
+
+    def get_shape_dict(self, batch_size, image_height, image_width):
+        latent_height, latent_width = self.check_dims(batch_size, image_height, image_width)
+        return {
+            'sample': (batch_size, self.unet_dim, latent_height, latent_width),
+            'hint': (batch_size, 3, image_height, image_width),
+            "timestep": (batch_size,),
+            "context": (batch_size, self.text_maxlen, self.embedding_dim),
+            'latent': (batch_size, self.unet_dim, latent_height, latent_width)
+
+        }
+
+    def get_sample_input(self, batch_size, image_height, image_width):
+        latent_height, latent_width = self.check_dims(batch_size, image_height, image_width)
+        dtype = torch.float16 if self.fp16 else torch.float32
+        return (
+            # 'sample': ['B', 4, 'latent_height', 'latent_width']
+            torch.randn(
+                batch_size,
+                self.unet_dim,
+                latent_height,
+                latent_width,
+                dtype=torch.float32,
+                device=self.device
+            ),
+            # 'hint': ['B', 3, 'image_height', 'image_width']
+            torch.randn(
+                batch_size,
+                3,
+                image_height,
+                image_width,
+                dtype=torch.float32,
+                device=self.device
+            ),
+            # "timestep": ['B'],
+            torch.tensor([1.], dtype=torch.float32, device=self.device),
+            # "context": ['B', 'T', 'E']
+            torch.randn(
+                batch_size,
+                self.text_maxlen,
+                self.embedding_dim,
+                dtype=dtype,
+                device=self.device
+            )
+        )
+
+
 
 class VAE(BaseModel):
     def __init__(self,

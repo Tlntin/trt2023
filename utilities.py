@@ -522,7 +522,7 @@ class TRT_DDIMSampler(object):
         # else:
         # control = self.control_model(x=x_noisy, hint=torch.cat(cond['c_concat'], 1), timesteps=t, context=cond_txt)
         control_dict = self.run_engine(
-            "control_net",
+            "union_model",
             {
                 "sample": x_noisy,
                 #"hint": torch.cat(cond['c_concat'], 1),
@@ -534,29 +534,8 @@ class TRT_DDIMSampler(object):
         # self.control_scalres = [1] * n, ignore it
         # control = [c * scale for c, scale in zip(control, self.control_scales)]
         # eps = diffusion_model(x=x_noisy, timesteps=t, context=cond_txt, control=control, only_mid_control=self.only_mid_control)
-        input_names = [
-            "sample",
-            "timestep",
-            "context",
-            "control_0",
-            "control_1",
-            "control_2",
-            "control_3",
-            "control_4",
-            "control_5",
-            "control_6",
-            "control_7",
-            "control_8",
-            "control_9",
-            "control_10",
-            "control_11",
-            "control_12",
-        ]
-        input_dict = {name: control_dict[name].clone() for name in input_names}
-        eps = self.run_engine(
-            "unet",
-            input_dict
-        )["latent"].clone()
+        # eps = control_dict["latent"].clone()
+        eps = control_dict["latent"]
         return eps
     
     def decode_first_stage(self, z, predict_cids=False, force_not_quantize=False):
@@ -600,7 +579,7 @@ class TRT_DDIMSampler(object):
             # model_t = self.model.apply_model(x, t, c)
             # model_uncond = self.model.apply_model(x, t, unconditional_conditioning)
             if self.do_summarize:
-                cudart.cudaEventRecord(self.events[f'control_net_{index}-start'], 0)
+                cudart.cudaEventRecord(self.events[f'union_model_{index}-start'], 0)
 
             c_c_concat_tensor = c['c_concat'][0]
             c_c_crossattn_tensor = c['c_crossattn'][0]
@@ -615,7 +594,7 @@ class TRT_DDIMSampler(object):
             #model_t = self.apply_model(x, t, c)
             #model_uncond = self.apply_model(x, t, unconditional_conditioning)
             if self.do_summarize:
-                cudart.cudaEventRecord(self.events[f'control_net_{index}-stop'], 0)
+                cudart.cudaEventRecord(self.events[f'union_model_{index}-stop'], 0)
             #model_output = model_uncond + unconditional_guidance_scale * (model_t - model_uncond)
             model_output = model_uncond_merge[1] + unconditional_guidance_scale * (model_uncond_merge[0] - model_uncond_merge[1])
 
