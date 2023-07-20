@@ -203,7 +203,18 @@ class Engine():
             print("Failed to refit!")
             exit(0)
 
-    def build(self, onnx_path, fp16, input_profile=None, enable_refit=False, enable_preview=False, enable_all_tactics=False, timing_cache=None, workspace_size=0):
+    def build(
+            self,
+            onnx_path,
+            fp16,
+            input_profile=None,
+            enable_refit=False,
+            enable_preview=False,
+            enable_all_tactics=False,
+            timing_cache=None,
+            workspace_size=0,
+            builder_optimization_level=3
+        ):
         print(f"Building TensorRT engine for {onnx_path}: {self.engine_path}")
         p = Profile()
         if input_profile:
@@ -221,13 +232,14 @@ class Engine():
             config_kwargs['memory_pool_limits'] = {trt.MemoryPoolType.WORKSPACE: workspace_size}
         if not enable_all_tactics:
             config_kwargs['tactic_sources'] = []
-
+        print("builder_optimization_level is ", builder_optimization_level)
         engine = engine_from_network(
             network_from_onnx_path(onnx_path, flags=[trt.OnnxParserFlag.NATIVE_INSTANCENORM]),
             config=CreateConfig(fp16=fp16,
                 refittable=enable_refit,
                 profiles=[p],
                 load_timing_cache=timing_cache,
+                builder_optimization_level=builder_optimization_level,
                 **config_kwargs
             ),
             save_timing_cache=timing_cache
