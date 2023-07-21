@@ -83,6 +83,7 @@ class BaseModel():
         fp16=False,
         device='cuda',
         verbose=True,
+        min_batch_size=1,
         max_batch_size=16,
         embedding_dim=768,
         text_maxlen=77,
@@ -92,7 +93,7 @@ class BaseModel():
         self.device = device
         self.verbose = verbose
 
-        self.min_batch = 1
+        self.min_batch = min_batch_size
         self.max_batch = max_batch_size
         self.min_image_shape = 256   # min image resolution: 256x256
         self.max_image_shape = 1024  # max image resolution: 1024x1024
@@ -165,12 +166,14 @@ class CLIP(BaseModel):
         model,
         device,
         verbose,
+        min_batch_size,
         max_batch_size,
         embedding_dim
     ):
         super(CLIP, self).__init__(
             device=device,
             verbose=verbose,
+            min_batch_size=min_batch_size,
             max_batch_size=max_batch_size,
             embedding_dim=embedding_dim
         )
@@ -188,11 +191,12 @@ class CLIP(BaseModel):
 
     def get_dynamic_axes(self):
         return {
-            'input_ids': {0: 'B'},
-            'text_embeddings': {0: 'B'}
+            'input_ids': {0: '2B'},
+            'text_embeddings': {0: '2B'}
         }
 
     def get_input_profile(self, batch_size, image_height, image_width, static_batch, static_shape):
+        assert batch_size % 2 == 0
         self.check_dims(batch_size, image_height, image_width)
         min_batch, max_batch, _, _, _, _, _, _, _, _ = self.get_minmax_dims(batch_size, image_height, image_width, static_batch, static_shape)
         return {
@@ -200,6 +204,7 @@ class CLIP(BaseModel):
         }
 
     def get_shape_dict(self, batch_size, image_height, image_width):
+        assert batch_size % 2 == 0
         self.check_dims(batch_size, image_height, image_width)
         return {
             'input_ids': (batch_size, self.text_maxlen),
@@ -207,6 +212,7 @@ class CLIP(BaseModel):
         }
 
     def get_sample_input(self, batch_size, image_height, image_width):
+        assert batch_size % 2 == 0
         self.check_dims(batch_size, image_height, image_width)
         return torch.zeros(
             batch_size, self.text_maxlen, dtype=torch.int32, device=self.device
@@ -235,6 +241,7 @@ class ControlNet(BaseModel):
         fp16=False,
         device='cuda',
         verbose=True,
+        min_batch_size=1,
         max_batch_size=16,
         embedding_dim=768,
         text_maxlen=77,
@@ -244,6 +251,7 @@ class ControlNet(BaseModel):
             fp16=fp16,
             device=device,
             verbose=verbose,
+            min_batch_size=min_batch_size,
             max_batch_size=max_batch_size,
             embedding_dim=embedding_dim,
             text_maxlen=text_maxlen
@@ -406,6 +414,7 @@ class UNet(BaseModel):
         fp16=False,
         device='cuda',
         verbose=True,
+        min_batch_size=1,
         max_batch_size=16,
         embedding_dim=768,
         text_maxlen=77,
@@ -415,6 +424,7 @@ class UNet(BaseModel):
             fp16=fp16,
             device=device,
             verbose=verbose,
+            min_batch_size=min_batch_size,
             max_batch_size=max_batch_size,
             embedding_dim=embedding_dim,
             text_maxlen=text_maxlen
@@ -747,6 +757,7 @@ class UnionModel(BaseModel):
         fp16=False,
         device='cuda',
         verbose=True,
+        min_batch_size=1,
         max_batch_size=16,
         embedding_dim=768,
         text_maxlen=77,
@@ -756,6 +767,7 @@ class UnionModel(BaseModel):
             fp16=fp16,
             device=device,
             verbose=verbose,
+            min_batch_size=min_batch_size,
             max_batch_size=max_batch_size,
             embedding_dim=embedding_dim,
             text_maxlen=text_maxlen
@@ -783,14 +795,15 @@ class UnionModel(BaseModel):
 
     def get_dynamic_axes(self):
         return {
-            'sample': {0: 'B', 2: 'H', 3: 'W'},
-            "hint": {0: 'B', 2: 'height', 3: 'width'},
-            "timestep": {0: 'B'},
-            "context": {0: 'B'},
-            'latent': {0: 'B', 2: 'H', 3: 'W'}
+            'sample': {0: '2B', 2: 'H', 3: 'W'},
+            "hint": {0: '2B', 2: 'height', 3: 'width'},
+            "timestep": {0: '2B'},
+            "context": {0: '2B'},
+            'latent': {0: '2B', 2: 'H', 3: 'W'}
         }
 
     def get_input_profile(self, batch_size, image_height, image_width, static_batch, static_shape):
+        assert batch_size % 2 == 0
         latent_height, latent_width = self.check_dims(batch_size, image_height, image_width)
         (
             min_batch, max_batch,
@@ -830,6 +843,7 @@ class UnionModel(BaseModel):
         }
 
     def get_shape_dict(self, batch_size, image_height, image_width):
+        assert batch_size % 2 == 0
         latent_height, latent_width = self.check_dims(batch_size, image_height, image_width)
         return {
             'sample': (batch_size, self.unet_dim, latent_height, latent_width),
@@ -841,6 +855,7 @@ class UnionModel(BaseModel):
         }
 
     def get_sample_input(self, batch_size, image_height, image_width):
+        assert batch_size % 2 == 0
         latent_height, latent_width = self.check_dims(batch_size, image_height, image_width)
         dtype = torch.float16 if self.fp16 else torch.float32
         return (
@@ -881,10 +896,17 @@ class VAE(BaseModel):
         model,
         device,
         verbose,
+        min_batch_size,
         max_batch_size,
         embedding_dim
     ):
-        super(VAE, self).__init__(device=device, verbose=verbose, max_batch_size=max_batch_size, embedding_dim=embedding_dim)
+        super(VAE, self).__init__(
+            device=device,
+            verbose=verbose,
+            min_batch_size=min_batch_size,
+            max_batch_size=max_batch_size,
+            embedding_dim=embedding_dim
+        )
         self.name = "VAE decoder"
         self.model = model
 

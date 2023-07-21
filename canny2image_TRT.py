@@ -40,7 +40,6 @@ class hackathon():
         self,
         version="1.5",
         stages=["clip", "union_model", "vae"],
-        max_batch_size=4,
         de_noising_steps=20,
         guidance_scale=9.0,
         onnx_device="cuda",
@@ -79,7 +78,6 @@ class hackathon():
         """
         self.de_noising_steps = de_noising_steps
         self.guidance_scale = guidance_scale
-        self.max_batch_size = max_batch_size
         self.do_summarize = do_summarize
         self.do_compare = do_compare
         self.builder_optimization_level = builder_optimization_level
@@ -107,6 +105,23 @@ class hackathon():
             "control_net": "control_model",
             "unet": "diffusion_model",
             "vae": "first_stage_model"
+        }
+        self.stage_batch_dict = {
+            "clip": {
+                "min": 2,
+                "opt": 2,
+                "max": 2,
+            },
+            "union_model": {
+                "min": 2,
+                "opt": 2,
+                "max": 2,
+            },
+            "vae": {
+                "min": 1,
+                "opt": 1,
+                "max": 1,
+            }
         }
         self.use_cuda_graph = use_cuda_graph
         self.stream = None
@@ -136,6 +151,9 @@ class hackathon():
                 temp_model = getattr(self.model, v)
             else:
                 temp_model = getattr(self.model.model, v)
+            if k in ["clip", "vae"]:
+                min_batch_size = self.stage_batch_dict[k]["min"]
+                max_batch_size = self.stage_batch_dict[k]["max"]
             if k == "clip":
                 self.tokenizer = temp_model.tokenizer
                 self.max_length = temp_model.max_length
@@ -143,7 +161,8 @@ class hackathon():
                     model=temp_model,
                     device=self.onnx_device,
                     verbose=self.verbose,
-                    max_batch_size=self.max_batch_size,
+                    min_batch_size=min_batch_size,
+                    max_batch_size=max_batch_size,
                     embedding_dim=self.embedding_dim
                 )
                 delattr(self.model, v)
@@ -153,7 +172,8 @@ class hackathon():
                     model=temp_model,
                     device=self.onnx_device,
                     verbose=self.verbose,
-                    max_batch_size=self.max_batch_size,
+                    min_batch_size=min_batch_size,
+                    max_batch_size=max_batch_size,
                     embedding_dim=self.embedding_dim
                 )
                 delattr(self.model, v)
@@ -163,12 +183,15 @@ class hackathon():
         # merge control_net and unet
         control_net_model = getattr(self.model, self.state_dict["control_net"])
         unet_model = getattr(self.model.model, self.state_dict["unet"])
+        min_batch_size = self.stage_batch_dict["union_model"]["min"]
+        max_batch_size = self.stage_batch_dict["union_model"]["max"]
         self.model.union_model = UnionModel(
             control_model=control_net_model,
             unet_model=unet_model,
             device=self.device,
             verbose=self.verbose,
-            max_batch_size=self.max_batch_size,
+            min_batch_size=min_batch_size,
+            max_batch_size=max_batch_size,
             embedding_dim=self.embedding_dim
         )
         delattr(self.model, self.state_dict["control_net"])
@@ -184,13 +207,13 @@ class hackathon():
         if not os.path.exists(onnx_dir):
             os.makedirs(onnx_dir)
         # time_cache_path = os.path.join(output_dir, "time_cache_fp16.cache")
+        # image size is pin
         image_height = 256
         image_width = 384
         self.load_engines(
             engine_dir=engine_dir,
             onnx_dir=onnx_dir,
             onnx_opset=17,
-            opt_batch_size=self.max_batch_size // 2,
             opt_image_height=image_height,
             opt_image_width=image_width,
         )
@@ -198,8 +221,6 @@ class hackathon():
         self.load_resources(
             image_height=image_height,
             image_width=image_width,
-            batch_size=1,
-            seed=2946901
         )
         # --- use TRT DDIM Sample --- #
         self.model = self.model.to(self.device)
@@ -240,7 +261,7 @@ class hackathon():
         )["text_embeddings"]
         return text_embeddings
     
-    def load_resources(self, image_height, image_width, batch_size, seed):
+    def load_resources(self, image_height, image_width):
         # Initialize noise generator
         # self.generator = torch.Generator(device="cuda").manual_seed(seed) if seed else None
 
@@ -254,7 +275,7 @@ class hackathon():
                 for marker in ['start', 'stop']:
                     self.events[stage + '-' + marker] = cudart.cudaEventCreate()[1]
             else:
-                for i in range(20):
+                for i in range(self.de_noising_steps):
                     for marker in ['start', 'stop']:
                         self.events[stage + "_{}".format(i) + '-' + marker] = cudart.cudaEventCreate()[1]
         self.stream = cuda.Stream()
@@ -264,18 +285,13 @@ class hackathon():
         # for model_name, obj in self.models.items():
         for model_name in self.stages:
             obj = getattr(self.model, model_name)
-            # if model_name == 'unet' or model_name == 'control_net':
-            if model_name in ["clip", "union_model"]:
-                self.engine[model_name].allocate_buffers(
-                    shape_dict=obj.get_shape_dict(batch_size*2, image_height, image_width),
-                    device=self.device
-                )
-            else:
-                self.engine[model_name].allocate_buffers(
-                    shape_dict=obj.get_shape_dict(batch_size, image_height, image_width),
-                    device=self.device
-                )
-             
+            opt_batch_size = self.stage_batch_dict[model_name]["opt"]
+            self.engine[model_name].allocate_buffers(
+                shape_dict=obj.get_shape_dict(
+                    opt_batch_size, image_height, image_width
+                ),
+                device=self.device
+            )
 
     def __del__(self):
         for e in self.ddim_sampler.events.values():
@@ -318,7 +334,6 @@ class hackathon():
         engine_dir,
         onnx_dir,
         onnx_opset,
-        opt_batch_size,
         opt_image_height,
         opt_image_width,
         force_export=False,
@@ -369,7 +384,6 @@ class hackathon():
             'version': self.version,
             'device': self.device,
             'verbose': self.verbose,
-            'max_batch_size': self.max_batch_size
         }
         print("model args: ", models_args)
         # Export models to ONNX
@@ -383,6 +397,7 @@ class hackathon():
                     if force_export or not os.path.exists(onnx_path):
                         print(f"Exporting model: {onnx_path}")
                         model = obj.get_model()
+                        opt_batch_size = self.stage_batch_dict[model_name]["opt"]
                         with torch.inference_mode(), torch.autocast("cuda"):
                             inputs = obj.get_sample_input(
                                 opt_batch_size,
@@ -428,6 +443,16 @@ class hackathon():
                         #     onnx.save(onnx_opt_graph, onnx_opt_path)
                     else:
                         print(f"Found cached optimized model: {onnx_opt_path} ")
+        
+        # clear old pytorch model
+        print("=" * 20)
+        for model_name in self.stages:
+            obj = getattr(self.model, model_name)
+            print(f"clear old {model_name} pytorch model")
+            delattr(getattr(self.model, model_name), "model")
+            gc.collect()
+            torch.cuda.empty_cache()
+        print("=" * 20)
 
         # Build TensorRT engines
         for model_name in self.stages:
@@ -439,15 +464,11 @@ class hackathon():
                 onnx_dir,
                 opt=False
             )
-            print(f"clear old {model_name} pytorch model")
-            delattr(getattr(self.model, model_name), "model")
-            gc.collect()
-            torch.cuda.empty_cache()
             # export TensorRT engine
             onnx_opt_path = self.get_onnx_path(
                 model_name, onnx_dir
             )
-
+            opt_batch_size = self.stage_batch_dict[model_name]["opt"]
             if force_build or not os.path.exists(engine.engine_path):
                 if model_name == "clip":
                     use_fp16 = False
