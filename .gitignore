@@ -157,4 +157,6 @@ models/control_sd15_canny.pth
 */*/*/*.pyc
 */*/*/*/*.pyc
 *.jpg
+test_imgs/*.png
+!test_imgs/*.jpg
 output/
