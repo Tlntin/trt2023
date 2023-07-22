@@ -662,21 +662,22 @@ class hackathon():
                 cudart.cudaEventRecord(self.events['clip-start'], 0)
             text_list = [prompt + ', ' + a_prompt] * num_samples + \
                 [n_prompt] * num_samples
-            text_embeds = self.text_embedding(text_list)
-            cond = {
-                "c_concat": [control],
-                "c_crossattn": [
-                    # self.model.get_learned_conditioning([prompt + ', ' + a_prompt] * num_samples)
-                    text_embeds[:num_samples]
-                ]
-            }
-            un_cond = {
-                "c_concat": None if guess_mode else [control],
-                "c_crossattn": [
-                    # self.model.get_learned_conditioning([n_prompt] * num_samples)
-                    text_embeds[num_samples:]
-                ]
-            }
+            batch_concat = torch.cat((control, control), 0)
+            batch_crossattn = self.text_embedding(text_list)
+            # cond = {
+            #     "c_concat": [control],
+            #     "c_crossattn": [
+            #         # self.model.get_learned_conditioning([prompt + ', ' + a_prompt] * num_samples)
+            #         text_embeds[:num_samples]
+            #     ]
+            # }
+            # un_cond = {
+            #     "c_concat": None if guess_mode else [control],
+            #     "c_crossattn": [
+            #         # self.model.get_learned_conditioning([n_prompt] * num_samples)
+            #         text_embeds[num_samples:]
+            #     ]
+            # }
             if self.do_summarize:
                 cudart.cudaEventRecord(self.events['clip-stop'], 0)
             shape = (4, H // 8, W // 8)
@@ -692,11 +693,11 @@ class hackathon():
                 ddim_steps,
                 num_samples,
                 shape,
-                cond,
+                batch_concat=batch_concat,
+                batch_crossattn=batch_crossattn,
                 verbose=False,
                 eta=eta,
                 unconditional_guidance_scale=scale,
-                unconditional_conditioning=un_cond,
                 do_summarize=self.do_summarize
             )
 
