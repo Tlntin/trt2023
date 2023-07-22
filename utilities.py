@@ -213,7 +213,8 @@ class Engine():
             enable_all_tactics=False,
             timing_cache=None,
             workspace_size=0,
-            builder_optimization_level=3
+            builder_optimization_level=3,
+            sparse_weights=False
         ):
         print(f"Building TensorRT engine for {onnx_path}: {self.engine_path}")
         p = Profile()
@@ -235,8 +236,10 @@ class Engine():
         print("builder_optimization_level is ", builder_optimization_level)
         engine = engine_from_network(
             network_from_onnx_path(onnx_path, flags=[trt.OnnxParserFlag.NATIVE_INSTANCENORM]),
-            config=CreateConfig(fp16=fp16,
+            config=CreateConfig(
+                fp16=fp16,
                 refittable=enable_refit,
+                sparse_weights=sparse_weights,
                 profiles=[p],
                 load_timing_cache=timing_cache,
                 builder_optimization_level=builder_optimization_level,
