@@ -235,24 +235,25 @@ class hackathon():
         )
 
         # --- first pre predict to speed CUDA graph and other --- #
-        first_image_path = os.path.join(now_dir, "test_imgs", "bird_0.jpg")
-        first_image = cv2.imread(first_image_path)
-        self.process(
-            first_image,
-            "a bird", 
-            "best quality, extremely detailed", 
-            "longbody, lowres, bad anatomy, bad hands, missing fingers", 
-            1, 
-            256, 
-            20,
-            False, 
-            1, 
-            9, 
-            2946901, 
-            0.0, 
-            100, 
-            200
-        )
+        for i in range(4):
+            first_image_path = os.path.join(now_dir, "test_imgs", f"bird_{i}.jpg")
+            first_image = cv2.imread(first_image_path)
+            self.process(
+                first_image,
+                "a bird", 
+                "best quality, extremely detailed", 
+                "longbody, lowres, bad anatomy, bad hands, missing fingers", 
+                1, 
+                256, 
+                20,
+                False, 
+                1, 
+                9, 
+                2946901, 
+                0.0, 
+                100, 
+                200
+            )
     
     def text_embedding(self, text_list: list):
         # batch_encoding = self.tokenizer(

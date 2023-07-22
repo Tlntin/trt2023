@@ -66,6 +66,8 @@ for i in range(20):
         print(stylize("score is too high, please check the output image", fg("red")))
 avg_score = sum(score_list) / len(score_list)
 avg_time = sum(time_list) / len(time_list)
+time_list = [round(t, 2) for t in time_list]
+print("cost time list ", time_list)
 print("PD score, max is {:.4f}, avg: {:.4f}: ".format(max(score_list), avg_score))
 print("time cost, max is {:.2f}ms, avg: {:.2f}ms: ".format(max(time_list), avg_time))
 
