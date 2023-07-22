@@ -219,6 +219,17 @@ class CLIP(BaseModel):
         )
         
     def optimize(self, onnx_graph):
+        # change onnx -inf to -1e4
+        for node in onnx_graph.graph.node:
+            # if node.name == "/text_model/ConstantOfShape_1":
+            if node.op_type == "ConstantOfShape":
+                attr = node.attribute[0]
+                if attr.name == "value" and attr.t.data_type == onnx.TensorProto.FLOAT:
+                    np_array = np.frombuffer(attr.t.raw_data, dtype=np.float32).copy()
+                    print("raw array", np_array)
+                    np_array[np_array == -np.inf] = -100000
+                    attr.t.raw_data = np_array.tobytes() 
+                    print("new array", np_array)
         opt = Optimizer(onnx_graph, verbose=self.verbose)
         opt.info(self.name + ': original')
         opt.select_outputs([0]) # delete graph output#1
