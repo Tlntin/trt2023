@@ -350,29 +350,32 @@ class TRT_DDIMSampler(object):
         assert alphas_cumprod.shape[0] == self.ddpm_num_timesteps, 'alphas have to be defined for each timestep'
         
 
-        self.register_buffer('betas', to_torch(self.model.betas))
-        self.register_buffer('alphas_cumprod', to_torch(alphas_cumprod))
-        self.register_buffer('alphas_cumprod_prev', to_torch(self.model.alphas_cumprod_prev))
+        # self.register_buffer('betas', to_torch(self.model.betas))
+        # self.register_buffer('alphas_cumprod', to_torch(alphas_cumprod))
+        # self.register_buffer('alphas_cumprod_prev', to_torch(self.model.alphas_cumprod_prev))
 
         # calculations for diffusion q(x_t | x_{t-1}) and others
-        self.register_buffer('sqrt_alphas_cumprod', to_torch(np.sqrt(alphas_cumprod.cpu())))
-        self.register_buffer('sqrt_one_minus_alphas_cumprod', to_torch(np.sqrt(1. - alphas_cumprod.cpu())))
-        self.register_buffer('log_one_minus_alphas_cumprod', to_torch(np.log(1. - alphas_cumprod.cpu())))
-        self.register_buffer('sqrt_recip_alphas_cumprod', to_torch(np.sqrt(1. / alphas_cumprod.cpu())))
-        self.register_buffer('sqrt_recipm1_alphas_cumprod', to_torch(np.sqrt(1. / alphas_cumprod.cpu() - 1)))
+        # self.register_buffer('sqrt_alphas_cumprod', to_torch(np.sqrt(alphas_cumprod.cpu())))
+        # self.register_buffer('sqrt_one_minus_alphas_cumprod', to_torch(np.sqrt(1. - alphas_cumprod.cpu())))
+        # self.register_buffer('log_one_minus_alphas_cumprod', to_torch(np.log(1. - alphas_cumprod.cpu())))
+        # self.register_buffer('sqrt_recip_alphas_cumprod', to_torch(np.sqrt(1. / alphas_cumprod.cpu())))
+        # self.register_buffer('sqrt_recipm1_alphas_cumprod', to_torch(np.sqrt(1. / alphas_cumprod.cpu() - 1)))
 
         # ddim sampling parameters
-        ddim_sigmas, ddim_alphas, ddim_alphas_prev = make_ddim_sampling_parameters(alphacums=alphas_cumprod.cpu(),
-                                                                                   ddim_timesteps=self.ddim_timesteps,
-                                                                                   eta=ddim_eta,verbose=verbose)
+        ddim_sigmas, ddim_alphas, ddim_alphas_prev = make_ddim_sampling_parameters(
+            alphacums=alphas_cumprod.cpu(),
+            ddim_timesteps=self.ddim_timesteps,
+            eta=ddim_eta,
+            verbose=verbose
+        )
         self.register_buffer('ddim_sigmas', ddim_sigmas)
         self.register_buffer('ddim_alphas', ddim_alphas)
         self.register_buffer('ddim_alphas_prev', ddim_alphas_prev)
         self.register_buffer('ddim_sqrt_one_minus_alphas', np.sqrt(1. - ddim_alphas))
-        sigmas_for_original_sampling_steps = ddim_eta * torch.sqrt(
-            (1 - self.alphas_cumprod_prev) / (1 - self.alphas_cumprod) * (
-                        1 - self.alphas_cumprod / self.alphas_cumprod_prev))
-        self.register_buffer('ddim_sigmas_for_original_num_steps', sigmas_for_original_sampling_steps)
+        # sigmas_for_original_sampling_steps = ddim_eta * torch.sqrt(
+        #     (1 - self.alphas_cumprod_prev) / (1 - self.alphas_cumprod) * (
+        #                 1 - self.alphas_cumprod / self.alphas_cumprod_prev))
+        # self.register_buffer('ddim_sigmas_for_original_num_steps', sigmas_for_original_sampling_steps)
 
     @torch.no_grad()
     def sample(self,
@@ -434,7 +437,7 @@ class TRT_DDIMSampler(object):
             img_callback=img_callback,
             quantize_denoised=quantize_x0,
             mask=mask, x0=x0,
-            ddim_use_original_steps=False,
+            # ddim_use_original_steps=False,
             noise_dropout=noise_dropout,
             temperature=temperature,
             score_corrector=score_corrector,
@@ -457,7 +460,7 @@ class TRT_DDIMSampler(object):
         batch_concat,
         batch_crossattn,
         x_T=None,
-        ddim_use_original_steps=False,
+        # ddim_use_original_steps=False,
         callback=None,
         timesteps=None,
         quantize_denoised=False,
@@ -518,7 +521,7 @@ class TRT_DDIMSampler(object):
                 batch_concat=batch_concat,
                 batch_crossattn=batch_crossattn,
                 index=index,
-                use_original_steps=ddim_use_original_steps,
+                # use_original_steps=ddim_use_original_steps,
                 quantize_denoised=quantize_denoised, temperature=temperature,
                 noise_dropout=noise_dropout, score_corrector=score_corrector,
                 corrector_kwargs=corrector_kwargs,
@@ -604,7 +607,7 @@ class TRT_DDIMSampler(object):
         batch_crossattn,
         index,
         repeat_noise=False,
-        use_original_steps=False,
+        # use_original_steps=False,
         quantize_denoised=False,
         temperature=1.,
         noise_dropout=0.,
@@ -642,10 +645,14 @@ class TRT_DDIMSampler(object):
         #     assert self.model.parameterization == "eps", 'not implemented'
         #     e_t = score_corrector.modify_score(self.model, e_t, x, t, c, **corrector_kwargs)
 
-        alphas = self.model.alphas_cumprod if use_original_steps else self.ddim_alphas
-        alphas_prev = self.model.alphas_cumprod_prev if use_original_steps else self.ddim_alphas_prev
-        sqrt_one_minus_alphas = self.model.sqrt_one_minus_alphas_cumprod if use_original_steps else self.ddim_sqrt_one_minus_alphas
-        sigmas = self.model.ddim_sigmas_for_original_num_steps if use_original_steps else self.ddim_sigmas
+        # alphas = self.model.alphas_cumprod if use_original_steps else self.ddim_alphas
+        # alphas_prev = self.model.alphas_cumprod_prev if use_original_steps else self.ddim_alphas_prev
+        # sqrt_one_minus_alphas = self.model.sqrt_one_minus_alphas_cumprod if use_original_steps else self.ddim_sqrt_one_minus_alphas
+        # sigmas = self.model.ddim_sigmas_for_original_num_steps if use_original_steps else self.ddim_sigmas
+        alphas = self.ddim_alphas
+        alphas_prev = self.ddim_alphas_prev
+        sqrt_one_minus_alphas = self.ddim_sqrt_one_minus_alphas
+        sigmas = self.ddim_sigmas
         # select parameters corresponding to the currently considered timestep
         a_t = torch.full((b, 1, 1, 1), alphas[index], device=device)
         a_prev = torch.full((b, 1, 1, 1), alphas_prev[index], device=device)
