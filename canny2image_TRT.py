@@ -265,7 +265,7 @@ class hackathon():
         #     return_tensors="pt"
         # )
         # input_ids = batch_encoding["input_ids"].int().to(self.device)
-        text_input_ids = self.tokenizer(
+        text_input_ids = self.tokenizer.batch_encode_plus(
             text_list,
             padding="max_length",
             max_length=self.tokenizer.model_max_length,
@@ -494,15 +494,15 @@ class hackathon():
                 #    use_fp16 = False
                 #else:
                 #    use_fp16 = True
-                if model_name == 'union_model':
-                    use_sparse_weights=True
-                else:
-                    use_sparse_weights=False
+                # if model_name == 'union_model':
+                #     use_sparse_weights=True
+                # else:
+                #     use_sparse_weights=False
                 engine.build(
                     onnx_opt_path,
                     fp16=True,
                     # fp16=use_fp16,
-                    sparse_weights=use_sparse_weights,
+                    sparse_weights=False,
                     input_profile=obj.get_input_profile(
                         opt_batch_size, opt_image_height, opt_image_width,
                         static_batch=static_batch, static_shape=static_shape
