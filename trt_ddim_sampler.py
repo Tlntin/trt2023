@@ -1,4 +1,3 @@
-import numpy as np
 import torch
 from cuda import cudart
 
@@ -107,7 +106,7 @@ class TRT_DDIMSampler(object):
             alphas_prev_at = alphas_prev[index]
             sqrt_one_minus_alphas_at = sqrt_one_minus_alphas[index]
             sigmas_at = sigmas[index]
-            img, _  = self.p_sample_ddim(
+            img  = self.p_sample_ddim(
                 img,
                 ts,
                 batch_concat=batch_concat,
@@ -198,4 +197,4 @@ class TRT_DDIMSampler(object):
         # noise = sigmas_at * torch.rand(x.shape, device=self.device) * temperature
         noise = sigmas_at * rand_noise
         x_prev = alphas_prev_at.sqrt() * pred_x0 + dir_xt + noise
-        return x_prev, pred_x0
+        return x_prev

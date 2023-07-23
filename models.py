@@ -14,19 +14,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-
-from collections import OrderedDict
-from copy import deepcopy
-# from diffusers.models import AutoencoderKL, UNet2DConditionModel
+import einops
 import numpy as np
 from onnx import shape_inference
 import onnx_graphsurgeon as gs
 from polygraphy.backend.onnx.loader import fold_constants
 import torch
-from transformers import CLIPTextModel, CLIPTokenizer
-from cuda import cudart
 import onnx
-import types
 
 class Optimizer():
     def __init__(
@@ -968,3 +962,268 @@ class VAE(BaseModel):
                 device=self.device
             ),
         )
+
+
+
+class SamplerModel(torch.nn.Module):
+    def __init__(
+            self,
+            clip_model,
+            control_model,
+            unet_model,
+            vae_model,
+            num_timesteps,
+            scale_factor,
+            alphas_cumprod,
+            schedule="linear",
+        ):
+        super().__init__()
+        self.clip_model = clip_model
+        self.control_model = control_model
+        self.unet_model = unet_model
+        self.vae_model = vae_model
+        self.scale_factor = scale_factor
+        self.alphas_cumprod = alphas_cumprod
+        self.ddpm_num_timesteps = num_timesteps
+        self.schedule = schedule
+
+    def forward(
+        self,
+        control: torch.Tensor,
+        input_ids: torch.Tensor,
+        eta: torch.Tensor,
+        uncond_scale: torch.Tensor,
+        temperature=1.,
+        ddim_num_steps=20,
+        score_corrector=None,
+        corrector_kwargs=None,
+        verbose=False,
+        dynamic_threshold=None,
+        do_summarize=False,
+    ):
+        h, w, c = control.shape
+        device = control.device
+        shape = (1, 4, h // 8, w // 8)
+        control = torch.stack(
+            # [control for _ in range(num_samples * 2)],
+            (control, control),
+        dim=0)
+        control = einops.rearrange(control, 'b h w c -> b c h w')
+        clip_outputs = self.clip_model(input_ids)
+        batch_crossattn = clip_outputs.last_hidden_state
+        # --- copy from make schedule ---
+        c = self.ddpm_num_timesteps // ddim_num_steps
+        ddim_timesteps = torch.arange(
+            1, self.ddpm_num_timesteps + 1, c,
+            dtype=torch.long,
+            device=device
+        )
+        flip_ddim_timesteps = torch.flip(ddim_timesteps, [0])
+        ddim_sampling_tensor = torch.stack(
+            # [flip_ddim_timesteps for _ in range(num_samples * 2)],
+            (flip_ddim_timesteps, flip_ddim_timesteps),
+            1
+        )
+        # ddim sampling parameters
+        alphas = self.alphas_cumprod[ddim_timesteps]
+        alphas = torch.stack(
+            # [alphas for _ in range(num_samples * 2)],
+            (alphas, alphas),
+            1
+        ).unsqueeze(2).unsqueeze(3).unsqueeze(4)
+        alphas_prev = torch.cat(
+            (self.alphas_cumprod[:1], self.alphas_cumprod[ddim_timesteps[:-1]]),
+            0
+        )
+        alphas_prev = torch.stack(
+            # [alphas_prev for _ in range(num_samples * 2)],
+            (alphas_prev, alphas_prev),
+            1
+        ).unsqueeze(2).unsqueeze(3).unsqueeze(4)
+        sqrt_one_minus_alphas = torch.sqrt(1. - alphas)
+        # according the the formula provided in https://arxiv.org/abs/2010.02502
+        sigmas = eta * torch.sqrt(
+            (1 - alphas_prev) / (1 - alphas) * (1 - alphas / alphas_prev)
+        )
+        # --- copy end  ---
+        
+        # batch_size = shape[0]
+        img = torch.randn(shape, device=device)
+        img = torch.cat(
+            # [img for _ in range(num_samples * 2)],
+            (img, img),
+            0
+        )
+        # becasuse seed, rand is pin
+        rand_noise = torch.rand_like(img, device=device) * temperature
+        for i in range(ddim_num_steps):
+            index = ddim_num_steps - i - 1
+            ts = ddim_sampling_tensor[i]
+            alphas_at = alphas[index]
+            alphas_prev_at = alphas_prev[index]
+            sqrt_one_minus_alphas_at = sqrt_one_minus_alphas[index]
+            sigmas_at = sigmas[index]
+            img  = self.p_sample_ddim(
+                img,
+                hint=control,
+                t=ts,
+                batch_crossattn=batch_crossattn,
+                index=index,
+                alphas_at=alphas_at,
+                alphas_prev_at=alphas_prev_at,
+                sigmas_at=sigmas_at,
+                sqrt_one_minus_alphas_at=sqrt_one_minus_alphas_at,
+                rand_noise=rand_noise,
+                score_corrector=score_corrector,
+                corrector_kwargs=corrector_kwargs,
+                uncond_scale=uncond_scale,
+                # unconditional_conditioning=unconditional_conditioning,
+                dynamic_threshold=dynamic_threshold
+            )
+        img = img[:1]
+        img = 1. / self.scale_factor * img
+        img = self.vae_model(img)
+        images = (
+            einops.rearrange(img, 'b c h w -> b h w c') * 127.5 + 127.5
+        ).clip(0, 255)
+        return images
+
+    def p_sample_ddim(
+        self,
+        x,
+        hint,
+        t,
+        batch_crossattn,
+        index,
+        alphas_at,
+        alphas_prev_at,
+        sqrt_one_minus_alphas_at,
+        sigmas_at,
+        rand_noise,
+        uncond_scale: torch.Tensor,
+        score_corrector=None,
+        corrector_kwargs=None,
+        dynamic_threshold=None
+    ):
+        control = self.control_model(x, hint, t, batch_crossattn)
+        b_latent = self.unet_model(x, t, batch_crossattn, control)
+        model_output = b_latent[1] + uncond_scale * (b_latent[0] - b_latent[1])
+        e_t = model_output
+        pred_x0 = (x - sqrt_one_minus_alphas_at * e_t) / alphas_at.sqrt()
+        # direction pointing to x_t
+        dir_xt = (1. - alphas_prev_at - sigmas_at ** 2).sqrt() * e_t
+        noise = sigmas_at * rand_noise
+        x_prev = alphas_prev_at.sqrt() * pred_x0 + dir_xt + noise
+        return x_prev
+
+
+class Sampler(BaseModel):
+    def __init__(self,
+        device,
+        verbose,
+        min_batch_size,
+        max_batch_size,
+        embedding_dim
+    ):
+        super(Sampler, self).__init__(
+            device=device,
+            verbose=verbose,
+            min_batch_size=min_batch_size,
+            max_batch_size=max_batch_size,
+            embedding_dim=embedding_dim
+        )
+        self.name = "Sample"
+
+    def get_input_names(self):
+        return [
+            "control",
+            "input_ids",
+            "eta",
+            "uncond_scale"
+        ]
+
+    def get_output_names(self):
+       return ["images"]
+
+    def get_dynamic_axes(self):
+        return {
+            "control": {0: 'H', 1: 'W'},
+            "input_ids": {0: '2B'},
+            "images": {0: 'B', 1: 'H', 2: 'W'}
+        }
+
+    def get_input_profile(self, batch_size, image_height, image_width, static_batch, static_shape):
+        self.check_dims(batch_size, image_height, image_width)
+        min_batch, max_batch, _, _, _, _, _, _, _, _ = self.get_minmax_dims(batch_size, image_height, image_width, static_batch, static_shape)
+        return {
+            "control": [
+                (image_height, image_width, 3),
+                (image_height, image_width, 3),
+                (image_height, image_width, 3),
+            ],
+            'input_ids': [
+                (min_batch * 2, self.text_maxlen),
+                (batch_size * 2, self.text_maxlen),
+                (max_batch * 2, self.text_maxlen)
+            ],
+            "eta": [(1,), (1,), (1,)],
+            "uncond_scale": [(1,), (1,), (1,)],
+        }
+
+    def get_shape_dict(self, batch_size, image_height, image_width):
+        self.check_dims(batch_size, image_height, image_width)
+        return {
+            "control": (image_height, image_width, 3),
+            "input_ids": (batch_size * 2, self.text_maxlen),
+            "eta": (1,),
+            "uncond_scale": (1,),
+            'images': (batch_size, image_height, image_width, 3)
+        }
+
+    def get_sample_input(self, batch_size, image_height, image_width):
+        self.check_dims(batch_size, image_height, image_width)
+        return (
+            # control
+            torch.rand(
+                (image_height, image_width, 3),
+                dtype=torch.float32,
+                device=self.device
+            ),
+            # input_ids
+            torch.zeros(
+                (batch_size * 2, self.text_maxlen),
+                dtype=torch.int32,
+                device=self.device
+            ),
+            # eta
+            torch.tensor([0.0], dtype=torch.float32, device=self.device),
+            # uncond_scale
+            torch.tensor([9.0], dtype=torch.float32, device=self.device)
+        )
+        
+    def optimize(self, onnx_graph):
+        # change onnx -inf to -1e6 to support fp16
+        for node in onnx_graph.graph.node:
+            # if node.name == "/text_model/ConstantOfShape_1":
+            if node.op_type == "ConstantOfShape":
+                attr = node.attribute[0]
+                if attr.name == "value" and attr.t.data_type == onnx.TensorProto.FLOAT:
+                    np_array = np.frombuffer(attr.t.raw_data, dtype=np.float32).copy()
+                    print("name", node.name, "raw array", np_array)
+                    np_array[np_array == -np.inf] = -100000
+                    attr.t.raw_data = np_array.tobytes() 
+                    print("name", node.name,"new array", np_array)
+        opt = Optimizer(onnx_graph, verbose=self.verbose)
+        opt.info(self.name + ': original')
+        opt.select_outputs([0]) # delete graph output#1
+        opt.cleanup()
+        opt.info(self.name + ': remove output[1]')
+        opt.fold_constants()
+        opt.info(self.name + ': fold constants')
+        opt.infer_shapes()
+        opt.info(self.name + ': shape inference')
+        opt.select_outputs([0], names=['text_embeddings']) # rename network output
+        opt.info(self.name + ': remove output[0]')
+        opt_onnx_graph = opt.cleanup(return_onnx=True)
+        opt.info(self.name + ': finished')
+        return opt_onnx_graph
