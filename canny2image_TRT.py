@@ -676,7 +676,7 @@ class hackathon():
             batch_crossattn = self.text_embedding(text_list)
             if self.do_summarize:
                 cudart.cudaEventRecord(self.events['clip-stop'], 0)
-            shape = (4, H // 8, W // 8)
+            shape = (num_samples, 4, H // 8, W // 8)
             samples, _intermediates = self.ddim_sampler.sample(
                 ddim_steps,
                 num_samples,
@@ -695,7 +695,7 @@ class hackathon():
                 cudart.cudaEventRecord(self.events['vae-stop'], 0)
             x_samples = (
                 einops.rearrange(x_samples, 'b c h w -> b h w c') * 127.5 + 127.5
-            ).cpu().numpy().clip(0, 255).astype(np.uint8)
+            ).clip(0, 255).to(torch.uint8).cpu().numpy()
 
             results = [x_samples[i] for i in range(num_samples)]
             if self.do_summarize:
