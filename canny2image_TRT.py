@@ -21,16 +21,14 @@ from cuda import cudart
 from models import (get_embedding_dim, CLIP, UnionModel, VAE)
 from polygraphy import cuda
 import tensorrt as trt
-from utilities import Engine, TRT_DDIMSampler, TRT_LOGGER
+from utilities import Engine, TRT_LOGGER
+from trt_ddim_sampler import TRT_DDIMSampler
 #-----------add for compare func -----------
 from polygraphy.backend.common import BytesFromPath
-from polygraphy.backend.onnx import BytesFromOnnx, ModifyOutputs as ModifyOnnxOutputs, OnnxFromPath
 from polygraphy.backend.onnxrt import OnnxrtRunner, SessionFromOnnx
 from polygraphy.backend.trt import EngineFromBytes, TrtRunner
 from polygraphy.common import TensorMetadata
 from polygraphy.comparator import Comparator, CompareFunc, DataLoader
-from polygraphy.exception import PolygraphyException
-from polygraphy import constants
 
 now_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -42,7 +40,7 @@ class hackathon():
         stages=["clip", "union_model", "vae"],
         de_noising_steps=20,
         guidance_scale=9.0,
-        onnx_device="cuda",
+        onnx_device="cpu",
         device='cuda',
         output_dir = os.path.join(now_dir, "output"),
         verbose=False,
@@ -130,7 +128,6 @@ class hackathon():
         self.max_length = 0
         self.apply_canny = None
         self.ddim_sampler = None
-        self.model = None
         self.engine = {}
         self.events = {}
         self.shared_device_memory = None
@@ -138,19 +135,20 @@ class hackathon():
 
     def initialize(self):
         self.apply_canny = CannyDetector()
-        self.model = create_model('./models/cldm_v15.yaml').cpu()
-        self.model.load_state_dict(
+        model = create_model('./models/cldm_v15.yaml').cpu()
+        model.load_state_dict(
             load_state_dict(
                 '/home/player/ControlNet/models/control_sd15_canny.pth',
                 location=self.onnx_device_raw
             )
         )
-        self.model = self.model.to(self.onnx_device)
+        model = model.to(self.onnx_device)
+        model_dict = {}
         for k, v in self.state_dict.items():
             if k != "unet":
-                temp_model = getattr(self.model, v)
+                temp_model = getattr(model, v)
             else:
-                temp_model = getattr(self.model.model, v)
+                temp_model = getattr(model.model, v)
             if k in ["clip", "vae"]:
                 min_batch_size = self.stage_batch_dict[k]["min"]
                 max_batch_size = self.stage_batch_dict[k]["max"]
@@ -165,8 +163,8 @@ class hackathon():
                     max_batch_size=max_batch_size,
                     embedding_dim=self.embedding_dim
                 )
-                delattr(self.model, v)
-                setattr(self.model, k, new_model)
+                delattr(model, v)
+                model_dict[k] = new_model
             elif k == "vae":
                 new_model = VAE(
                     model=temp_model,
@@ -176,16 +174,16 @@ class hackathon():
                     max_batch_size=max_batch_size,
                     embedding_dim=self.embedding_dim
                 )
-                delattr(self.model, v)
-                setattr(self.model, k, new_model)
+                delattr(model, v)
+                model_dict[k] = new_model
             else:
                 pass
         # merge control_net and unet
-        control_net_model = getattr(self.model, self.state_dict["control_net"])
-        unet_model = getattr(self.model.model, self.state_dict["unet"])
+        control_net_model = getattr(model, self.state_dict["control_net"])
+        unet_model = getattr(model.model, self.state_dict["unet"])
         min_batch_size = self.stage_batch_dict["union_model"]["min"]
         max_batch_size = self.stage_batch_dict["union_model"]["max"]
-        self.model.union_model = UnionModel(
+        model_dict["union_model"] = UnionModel(
             control_model=control_net_model,
             unet_model=unet_model,
             device=self.device,
@@ -194,8 +192,16 @@ class hackathon():
             max_batch_size=max_batch_size,
             embedding_dim=self.embedding_dim
         )
-        delattr(self.model, self.state_dict["control_net"])
-        delattr(self.model.model, self.state_dict["unet"])
+        delattr(model, self.state_dict["control_net"])
+        delattr(model.model, self.state_dict["unet"])
+        # copy some params from model to ddim_sampler
+        num_timesteps = model.num_timesteps
+        scale_factor = model.scale_factor
+        alphas_cumprod = model.alphas_cumprod.to(self.device)
+        # clear model
+        del model
+        gc.collect()
+        torch.cuda.empty_cache()
         # --- build or load engine --- #
         output_dir = os.path.join(now_dir, "output")
         if not os.path.exists(output_dir):
@@ -211,6 +217,7 @@ class hackathon():
         image_height = 256
         image_width = 384
         self.load_engines(
+            model_dict=model_dict,
             engine_dir=engine_dir,
             onnx_dir=onnx_dir,
             onnx_opset=17,
@@ -219,17 +226,24 @@ class hackathon():
         )
         # --- load resource --- #
         self.load_resources(
+            model_dict=model_dict,
             image_height=image_height,
             image_width=image_width,
         )
-        # --- use TRT DDIM Sample --- #
-        self.model = self.model.to(self.device)
+        # clear model_dict
+        for k, v in model_dict.items():
+            del v
+            gc.collect()
+            torch.cuda.empty_cache()
         self.ddim_sampler = TRT_DDIMSampler(
-            model=self.model,
+            device=self.device,
             engine=self.engine,
             events=self.events,
             stream=self.stream,
             cuda_stream=self.cuda_stream,
+            num_timesteps=num_timesteps,
+            scale_factor=scale_factor,
+            alphas_cumprod=alphas_cumprod,
             do_summarize=self.do_summarize,
             use_cuda_graph=self.use_cuda_graph
         )
@@ -282,7 +296,7 @@ class hackathon():
         )["text_embeddings"]
         return text_embeddings
     
-    def load_resources(self, image_height, image_width):
+    def load_resources(self, model_dict, image_height, image_width):
         # Initialize noise generator
         # self.generator = torch.Generator(device="cuda").manual_seed(seed) if seed else None
 
@@ -303,9 +317,8 @@ class hackathon():
         self.cuda_stream = cuda.Stream()
 
         # Allocate buffers for TensorRT engine bindings
-        # for model_name, obj in self.models.items():
         for model_name in self.stages:
-            obj = getattr(self.model, model_name)
+            obj = model_dict[model_name]
             opt_batch_size = self.stage_batch_dict[model_name]["opt"]
             self.engine[model_name].allocate_buffers(
                 shape_dict=obj.get_shape_dict(
@@ -352,6 +365,7 @@ class hackathon():
 
     def load_engines(
         self,
+        model_dict,
         engine_dir,
         onnx_dir,
         onnx_opset,
@@ -409,7 +423,7 @@ class hackathon():
         print("model args: ", models_args)
         # Export models to ONNX
         for model_name in self.stages:
-            obj = getattr(self.model, model_name)
+            obj = model_dict[model_name]
             engine_path = self.get_engine_path(model_name, engine_dir)
             if force_export or force_build or not os.path.exists(engine_path):
                 onnx_path = self.get_onnx_path(model_name, onnx_dir, opt=False)
@@ -468,16 +482,16 @@ class hackathon():
         # clear old pytorch model
         print("=" * 20)
         for model_name in self.stages:
-            obj = getattr(self.model, model_name)
+            obj = model_dict[model_name]
             print(f"clear old {model_name} pytorch model")
-            delattr(getattr(self.model, model_name), "model")
+            delattr(obj, "model")
             gc.collect()
             torch.cuda.empty_cache()
         print("=" * 20)
 
         # Build TensorRT engines
         for model_name in self.stages:
-            obj = getattr(self.model, model_name)
+            obj = model_dict[model_name]
             engine_path = self.get_engine_path(model_name, engine_dir)
             engine = Engine(engine_path)
             onnx_path = self.get_onnx_path(
@@ -655,40 +669,15 @@ class hackathon():
             if seed == -1:
                 seed = random.randint(0, 65535)
             seed_everything(seed)
-
-            if config.save_memory:
-                self.model.low_vram_shift(is_diffusing=False)
             if self.do_summarize:
                 cudart.cudaEventRecord(self.events['clip-start'], 0)
             text_list = [prompt + ', ' + a_prompt] * num_samples + \
                 [n_prompt] * num_samples
             batch_concat = torch.cat((control, control), 0)
             batch_crossattn = self.text_embedding(text_list)
-            # cond = {
-            #     "c_concat": [control],
-            #     "c_crossattn": [
-            #         # self.model.get_learned_conditioning([prompt + ', ' + a_prompt] * num_samples)
-            #         text_embeds[:num_samples]
-            #     ]
-            # }
-            # un_cond = {
-            #     "c_concat": None if guess_mode else [control],
-            #     "c_crossattn": [
-            #         # self.model.get_learned_conditioning([n_prompt] * num_samples)
-            #         text_embeds[num_samples:]
-            #     ]
-            # }
             if self.do_summarize:
                 cudart.cudaEventRecord(self.events['clip-stop'], 0)
             shape = (4, H // 8, W // 8)
-
-            # if config.save_memory:
-            #     self.model.low_vram_shift(is_diffusing=True)
-
-            # Magic number. IDK why. Perhaps because 0.825**12<0.01 but 0.826**12>0.01
-            self.model.control_scales = [
-                strength * (0.825 ** float(12 - i)) for i in range(13)
-            ] if guess_mode else ([strength] * 13) 
             samples, _intermediates = self.ddim_sampler.sample(
                 ddim_steps,
                 num_samples,
@@ -700,11 +689,6 @@ class hackathon():
                 unconditional_guidance_scale=scale,
                 do_summarize=self.do_summarize
             )
-
-            # if config.save_memory:
-            #     self.model.low_vram_shift(is_diffusing=False)
-
-            # x_samples = self.model.decode_first_stage(samples)
             if self.do_summarize:
                 cudart.cudaEventRecord(self.events['vae-start'], 0)
             x_samples = self.ddim_sampler.decode_first_stage(samples)
@@ -721,5 +705,5 @@ class hackathon():
     
 
 if __name__ == "__main__":
-    hk = hackathon(do_compare=True) 
+    hk = hackathon(do_compare=False, onnx_device="cuda") 
     hk.initialize()
