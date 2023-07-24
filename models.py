@@ -895,6 +895,280 @@ class UnionModel(BaseModel):
         )
 
 
+class UnionBlock(torch.nn.Module):
+    def __init__(self, control_model, unet_model):
+        super(UnionBlock, self).__init__()
+        self.control_model = control_model
+        self.unet_model = unet_model
+
+    def forward(
+        self,
+        x,
+        hint,
+        t,
+        context,
+        alphas,
+        alphas_prev,
+        sqrt_one_minus_alphas,
+        noise,
+        temp_di,
+        uncond_scale: torch.Tensor,
+    ):
+        # for i in range(4):
+        #     index = 3 - i
+        #     control = self.control_model(x, hint, t[index], context)
+        #     b_latent = self.unet_model(x, t[index], context, control)
+        #     e_t = b_latent[1] + uncond_scale * (b_latent[0] - b_latent[1])
+        #     pred_x0 = (x - sqrt_one_minus_alphas[index] * e_t) / alphas[index]
+        #     # direction pointing to x_t
+        #     dir_xt = temp_di[index] * e_t
+        #     x = alphas_prev[index] * pred_x0 + dir_xt + noise[index]
+        # -- forward 3 --- #
+        control = self.control_model(x, hint, t[3], context)
+        b_latent = self.unet_model(x, t[3], context, control)
+        e_t = b_latent[1] + uncond_scale * (b_latent[0] - b_latent[1])
+        pred_x0 = (x - sqrt_one_minus_alphas[3] * e_t) / alphas[3]
+        # direction pointing to x_t
+        dir_xt = temp_di[3] * e_t
+        x = alphas_prev[3] * pred_x0 + dir_xt + noise[3]
+
+        # -- forward 2 --- #
+        control = self.control_model(x, hint, t[2], context)
+        b_latent = self.unet_model(x, t[2], context, control)
+        e_t = b_latent[1] + uncond_scale * (b_latent[0] - b_latent[1])
+        pred_x0 = (x - sqrt_one_minus_alphas[2] * e_t) / alphas[2]
+        # direction pointing to x_t
+        dir_xt = temp_di[2] * e_t
+        x = alphas_prev[2] * pred_x0 + dir_xt + noise[2]
+
+        # -- forward 1 --- #
+        control = self.control_model(x, hint, t[1], context)
+        b_latent = self.unet_model(x, t[1], context, control)
+        e_t = b_latent[1] + uncond_scale * (b_latent[0] - b_latent[1])
+        pred_x0 = (x - sqrt_one_minus_alphas[1] * e_t) / alphas[1]
+        # direction pointing to x_t
+        dir_xt = temp_di[1] * e_t
+        x = alphas_prev[1] * pred_x0 + dir_xt + noise[1]
+
+        # -- forward 0 --- #
+        control = self.control_model(x, hint, t[0], context)
+        b_latent = self.unet_model(x, t[0], context, control)
+        e_t = b_latent[1] + uncond_scale * (b_latent[0] - b_latent[1])
+        pred_x0 = (x - sqrt_one_minus_alphas[0] * e_t) / alphas[0]
+        # direction pointing to x_t
+        dir_xt = temp_di[0] * e_t
+        x = alphas_prev[0] * pred_x0 + dir_xt + noise[0]
+        return x
+
+
+
+class UnionModelV2(BaseModel):
+    def __init__(self,
+        control_model,
+        unet_model,
+        fp16=False,
+        device='cuda',
+        verbose=True,
+        min_batch_size=1,
+        max_batch_size=16,
+        embedding_dim=768,
+        text_maxlen=77,
+        unet_dim=4
+    ):
+        super(UnionModelV2, self).__init__(
+            fp16=fp16,
+            device=device,
+            verbose=verbose,
+            min_batch_size=min_batch_size,
+            max_batch_size=max_batch_size,
+            embedding_dim=embedding_dim,
+            text_maxlen=text_maxlen
+        )
+        self.unet_dim = unet_dim
+        self.name = "UnionModel"
+        self.model = UnionBlock(control_model, unet_model)
+
+    def get_model(self):
+        # model_opts = {'revision': 'fp16', 'torch_dtype': torch.float16} if self.fp16 else {}
+        if self.fp16:
+            self.model = self.model.to(device=self.device, dtype=torch.float16)
+        return self.model
+
+    def get_input_names(self):
+        return [
+            "sample",
+            "hint",
+            "timestep",
+            "context",
+            "alphas",
+            "alphas_prev",
+            "sqrt_one_minus_alphas",
+            "noise",
+            "temp_di",
+            "uncond_scale",
+        ]
+
+    def get_output_names(self):
+        return ['latent']
+
+    def get_dynamic_axes(self):
+        return {
+            'sample': {0: '2B', 2: 'H', 3: 'W'},
+            "hint": {0: '2B', 2: 'height', 3: 'width'},
+            "timestep": {1: '2B'},
+            "context": {0: '2B'},
+            "alphas": {1: "2B"},
+            "alphas_prev": {1: "2B"},
+            "sqrt_one_minus_alphas": {1: "2B"},
+            "noise": {1: "2B", 3: "H", 4: "W"},
+            "temp_di": {1: "2B"},
+            'latent': {0: '2B', 2: 'H', 3: 'W'}
+        }
+
+    def get_input_profile(self, batch_size, image_height, image_width, static_batch, static_shape):
+        assert batch_size % 2 == 0
+        latent_height, latent_width = self.check_dims(batch_size, image_height, image_width)
+        (
+            min_batch, max_batch,
+            min_image_height, max_image_height,
+            min_image_width, max_image_width,
+            min_latent_height, max_latent_height,
+            min_latent_width, max_latent_width 
+        ) = \
+            self.get_minmax_dims(
+                batch_size,
+                image_height,
+                image_width,
+                static_batch,
+                static_shape
+            )
+        return {
+            'sample': [
+                (min_batch, self.unet_dim, min_latent_height, min_latent_width), # min
+                (batch_size, self.unet_dim, latent_height, latent_width), # opt
+                (max_batch, self.unet_dim, max_latent_height, max_latent_width) # max
+            ],
+            "hint": [
+                (min_batch, 3, min_image_height, min_image_width), # min
+                (batch_size, 3, image_height, image_width), # opt
+                (max_batch, 3, max_image_height, max_image_width) # max
+            ],
+            "timestep": [
+                (4, min_batch,),     
+                (4, batch_size,),
+                (4, max_batch,)
+            ],
+            "context": [
+                (min_batch, self.text_maxlen, self.embedding_dim),
+                (batch_size, self.text_maxlen, self.embedding_dim),
+                (max_batch, self.text_maxlen, self.embedding_dim)
+            ],
+            "alphas": [
+                (4, min_batch, 1, 1, 1),
+                (4, batch_size, 1, 1, 1),
+                (4, max_batch, 1, 1, 1),
+            ],
+            "alphas_prev":[
+                (4, min_batch, 1, 1, 1),
+                (4, batch_size, 1, 1, 1),
+                (4, max_batch, 1, 1, 1),
+
+            ],
+            "sqrt_one_minus_alphas": [
+                (4, min_batch, 1, 1, 1),
+                (4, batch_size, 1, 1, 1),
+                (4, max_batch, 1, 1, 1),
+            ],
+            "noise": [
+                (4, min_batch, self.unet_dim, min_latent_height, min_latent_width),
+                (4, batch_size, self.unet_dim, latent_height, latent_width),
+                (4, max_batch, self.unet_dim, max_latent_height, max_latent_width)
+            ],
+            "temp_di": [
+                (4, min_batch, 1, 1, 1),
+                (4, batch_size, 1, 1, 1),
+                (4, max_batch, 1, 1, 1),
+            ],
+            "uncond_scale": [
+                (1,),
+                (1,),
+                (1,)
+            ],
+        }
+
+    def get_shape_dict(self, batch_size, image_height, image_width):
+        assert batch_size % 2 == 0
+        latent_height, latent_width = self.check_dims(batch_size, image_height, image_width)
+        return {
+            'sample': (batch_size, self.unet_dim, latent_height, latent_width),
+            'hint': (batch_size, 3, image_height, image_width),
+            "timestep": (4, batch_size),
+            "context": (batch_size, self.text_maxlen, self.embedding_dim),
+            "alphas": (4, batch_size, 1, 1, 1),
+            "alphas_prev": (4, batch_size, 1, 1, 1),
+            "sqrt_one_minus_alphas": (4, batch_size, 1, 1, 1),
+            "noise": (4, batch_size, self.unet_dim, latent_height, latent_width),
+            "temp_di": (4, batch_size, 1, 1, 1),
+            "uncond_scale": (1,),
+            'latent': (batch_size, self.unet_dim, latent_height, latent_width)
+        }
+
+    def get_sample_input(self, batch_size, image_height, image_width):
+        assert batch_size % 2 == 0
+        latent_height, latent_width = self.check_dims(batch_size, image_height, image_width)
+        dtype = torch.float16 if self.fp16 else torch.float32
+        return (
+            # 'sample': ['B', 4, 'latent_height', 'latent_width']
+            torch.randn(
+                batch_size,
+                self.unet_dim,
+                latent_height,
+                latent_width,
+                dtype=torch.float32,
+                device=self.device
+            ),
+            # 'hint': ['B', 3, 'image_height', 'image_width']
+            torch.randn(
+                batch_size,
+                3,
+                image_height,
+                image_width,
+                dtype=torch.float32,
+                device=self.device
+            ),
+            # "timestep": [4, 'B'],
+            torch.tensor(
+                [[1., 1.] for _ in range(4)],
+                dtype=torch.float32,
+                device=self.device
+            ),
+            # "context": ['B', 'T', 'E']
+            torch.randn(
+                batch_size,
+                self.text_maxlen,
+                self.embedding_dim,
+                dtype=dtype,
+                device=self.device
+            ),
+            # alphas
+            torch.randn((4, batch_size, 1, 1, 1), dtype=dtype, device=self.device),
+            # alphas_prev
+            torch.randn((4, batch_size, 1, 1, 1), dtype=dtype, device=self.device),
+            # sqrt_one_minus_alphas
+            torch.randn((4, batch_size, 1, 1, 1), dtype=dtype, device=self.device),
+            # noise
+            torch.randn(
+                (4, batch_size, self.unet_dim, latent_height, latent_width),
+                dtype=dtype,
+                device=self.device,
+            ),
+            # temp_di
+            torch.randn((4, batch_size, 1, 1, 1), dtype=dtype, device=self.device),
+            # "uncond_scale":
+            torch.tensor([9.0], dtype=dtype, device=self.device),
+        )
+
+
 
 class VAE(BaseModel):
     def __init__(self,
@@ -979,26 +1253,27 @@ class SamplerModel(torch.nn.Module):
         ):
         super().__init__()
         self.clip_model = clip_model
-        self.control_model = control_model
-        self.unet_model = unet_model
+        self.union_model = UnionBlock(control_model, unet_model)
         self.vae_model = vae_model
         self.scale_factor = scale_factor
         self.alphas_cumprod = alphas_cumprod
         self.ddpm_num_timesteps = num_timesteps
         self.schedule = schedule
 
-    def forward(
+    def sample(
         self,
         control: torch.Tensor,
         input_ids: torch.Tensor,
         eta: torch.Tensor,
         uncond_scale: torch.Tensor,
+        ddim_num_steps: torch.Tensor,
         temperature=1.,
-        ddim_num_steps=20,
     ):
         h, w, c = control.shape
         device = control.device
         shape = (1, 4, h // 8, w // 8)
+        # make ddim_num_step % 4 == 0
+        ddim_num_steps = (int(ddim_num_steps[0]) + 3) // 4 * 4
         control = torch.stack(
             # [control for _ in range(num_samples * 2)],
             (control, control),
@@ -1013,10 +1288,10 @@ class SamplerModel(torch.nn.Module):
             dtype=torch.long,
             device=device
         )
-        flip_ddim_timesteps = torch.flip(ddim_timesteps, [0])
+        # flip_ddim_timesteps = torch.flip(ddim_timesteps, [0])
         ddim_sampling_tensor = torch.stack(
             # [flip_ddim_timesteps for _ in range(num_samples * 2)],
-            (flip_ddim_timesteps, flip_ddim_timesteps),
+            (ddim_timesteps, ddim_timesteps),
             1
         )
         # ddim sampling parameters
@@ -1057,18 +1332,18 @@ class SamplerModel(torch.nn.Module):
         rand_noise = torch.rand_like(img, device=device).unsqueeze(0) * temperature
         noise = sigmas * rand_noise
         # --optimizer code end -- #
-        for i in range(ddim_num_steps):
-            index = ddim_num_steps - i - 1
-            img  = self.p_sample_ddim(
+        for i in range(0, ddim_num_steps, 4):
+            index = ddim_num_steps - i
+            img = self.union_model(
                 img,
                 hint=control,
-                t=ddim_sampling_tensor[i],
-                batch_crossattn=batch_crossattn,
-                alphas_at=alphas[index],
-                alphas_prev_at=alphas_prev[index],
-                sqrt_one_minus_alphas_at=sqrt_one_minus_alphas[index],
-                noise_at=noise[index],
-                temp_di_at=temp_di[index],
+                t=ddim_sampling_tensor[index - 4: index],
+                context=batch_crossattn,
+                alphas=alphas[index - 4: index],
+                alphas_prev=alphas_prev[index - 4: index],
+                sqrt_one_minus_alphas=sqrt_one_minus_alphas[index - 4: index],
+                noise=noise[index - 4: index],
+                temp_di=temp_di[index -4: index],
                 uncond_scale=uncond_scale,
             )
         img = img[:1]
@@ -1078,28 +1353,6 @@ class SamplerModel(torch.nn.Module):
             einops.rearrange(img, 'b c h w -> b h w c') * 127.5 + 127.5
         ).clip(0, 255)
         return images
-
-    def p_sample_ddim(
-        self,
-        x,
-        hint,
-        t,
-        batch_crossattn,
-        alphas_at,
-        alphas_prev_at,
-        sqrt_one_minus_alphas_at,
-        noise_at,
-        temp_di_at,
-        uncond_scale: torch.Tensor,
-    ):
-        control = self.control_model(x, hint, t, batch_crossattn)
-        b_latent = self.unet_model(x, t, batch_crossattn, control)
-        e_t = b_latent[1] + uncond_scale * (b_latent[0] - b_latent[1])
-        pred_x0 = (x - sqrt_one_minus_alphas_at * e_t) / alphas_at
-        # direction pointing to x_t
-        dir_xt = temp_di_at * e_t
-        x_prev = alphas_prev_at * pred_x0 + dir_xt + noise_at
-        return x_prev
 
 
 class Sampler(BaseModel):

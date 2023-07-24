@@ -104,12 +104,12 @@ class hackathon():
             # because the genrate_batch pin, so do like this
             text_list = [prompt + ', ' + a_prompt] + [n_prompt]
             input_ids = self.text_tokenizer(text_list)
-            samples = self.model(
+            samples = self.model.sample(
                 control=control,
                 input_ids=input_ids,
                 eta=torch.tensor([eta], dtype=torch.float32, device=self.device),
                 uncond_scale=torch.tensor([scale], dtype=torch.float32, device=self.device),
-                ddim_num_steps=ddim_steps,
+                ddim_num_steps=torch.tensor([ddim_steps], dtype=torch.int32, device=self.device),
             )
             x_samples = samples.to(torch.uint8).cpu().numpy()
             results = [x_samples[0]]
