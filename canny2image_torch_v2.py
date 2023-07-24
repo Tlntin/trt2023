@@ -107,9 +107,10 @@ class hackathon():
             samples = self.model.sample(
                 control=control,
                 input_ids=input_ids,
-                eta=torch.tensor([eta], dtype=torch.float32, device=self.device),
                 uncond_scale=torch.tensor([scale], dtype=torch.float32, device=self.device),
-                ddim_num_steps=torch.tensor([ddim_steps], dtype=torch.int32, device=self.device),
+                ddim_num_steps=ddim_steps,
+                eta=eta,
+                batch_size=num_samples,
             )
             x_samples = samples.to(torch.uint8).cpu().numpy()
             results = [x_samples[0]]
