@@ -924,17 +924,19 @@ class UnionBlock(torch.nn.Module):
         #     dir_xt = temp_di[index] * e_t
         #     x = alphas_prev[index] * pred_x0 + dir_xt + noise[index]
         # -- forward 3 --- #
-        control = self.control_model(x, hint, t[3], context)
-        b_latent = self.unet_model(x, t[3], context, control)
-        e_t = b_latent[1] + uncond_scale * (b_latent[0] - b_latent[1])
+        b = x.shape[0] // 2
+        control = self.control_model(x, hint, t[6:], context)
+        b_latent = self.unet_model(x, t[6:], context, control)
+        # e_t shape = [batch, 4, 32, 48]
+        e_t = b_latent[b:] + uncond_scale * (b_latent[:b] - b_latent[b:])
         pred_x0 = (x - sqrt_one_minus_alphas[3] * e_t) / alphas[3]
         # direction pointing to x_t
         dir_xt = temp_di[3] * e_t
         x = alphas_prev[3] * pred_x0 + dir_xt + noise[3]
 
         # -- forward 2 --- #
-        control = self.control_model(x, hint, t[2], context)
-        b_latent = self.unet_model(x, t[2], context, control)
+        control = self.control_model(x, hint, t[4: 6], context)
+        b_latent = self.unet_model(x, t[4: 6], context, control)
         e_t = b_latent[1] + uncond_scale * (b_latent[0] - b_latent[1])
         pred_x0 = (x - sqrt_one_minus_alphas[2] * e_t) / alphas[2]
         # direction pointing to x_t
@@ -942,8 +944,8 @@ class UnionBlock(torch.nn.Module):
         x = alphas_prev[2] * pred_x0 + dir_xt + noise[2]
 
         # -- forward 1 --- #
-        control = self.control_model(x, hint, t[1], context)
-        b_latent = self.unet_model(x, t[1], context, control)
+        control = self.control_model(x, hint, t[2: 4], context)
+        b_latent = self.unet_model(x, t[2: 4], context, control)
         e_t = b_latent[1] + uncond_scale * (b_latent[0] - b_latent[1])
         pred_x0 = (x - sqrt_one_minus_alphas[1] * e_t) / alphas[1]
         # direction pointing to x_t
@@ -951,8 +953,8 @@ class UnionBlock(torch.nn.Module):
         x = alphas_prev[1] * pred_x0 + dir_xt + noise[1]
 
         # -- forward 0 --- #
-        control = self.control_model(x, hint, t[0], context)
-        b_latent = self.unet_model(x, t[0], context, control)
+        control = self.control_model(x, hint, t[: 2], context)
+        b_latent = self.unet_model(x, t[: 2], context, control)
         e_t = b_latent[1] + uncond_scale * (b_latent[0] - b_latent[1])
         pred_x0 = (x - sqrt_one_minus_alphas[0] * e_t) / alphas[0]
         # direction pointing to x_t
@@ -1268,16 +1270,17 @@ class SamplerModel(torch.nn.Module):
         uncond_scale: torch.Tensor,
         ddim_num_steps: torch.Tensor,
         temperature=1.,
+        batch_size = 1,
     ):
         h, w, c = control.shape
         device = control.device
-        shape = (1, 4, h // 8, w // 8)
+        shape = (batch_size, 4, h // 8, w // 8)
         # make ddim_num_step % 4 == 0
         ddim_num_steps = (int(ddim_num_steps[0]) + 3) // 4 * 4
         control = torch.stack(
-            # [control for _ in range(num_samples * 2)],
-            (control, control),
-        dim=0)
+            [control for _ in range(batch_size * 2)],
+            dim=0
+        )
         control = einops.rearrange(control, 'b h w c -> b c h w')
         clip_outputs = self.clip_model(input_ids)
         batch_crossattn = clip_outputs.last_hidden_state
@@ -1288,28 +1291,14 @@ class SamplerModel(torch.nn.Module):
             dtype=torch.long,
             device=device
         )
-        # flip_ddim_timesteps = torch.flip(ddim_timesteps, [0])
-        ddim_sampling_tensor = torch.stack(
-            # [flip_ddim_timesteps for _ in range(num_samples * 2)],
-            (ddim_timesteps, ddim_timesteps),
-            1
-        )
+        ddim_sampling_tensor = ddim_timesteps\
+            .unsqueeze(1).repeat(1, 2 * batch_size).view(-1)
         # ddim sampling parameters
         alphas = self.alphas_cumprod[ddim_timesteps]
-        alphas = torch.stack(
-            # [alphas for _ in range(num_samples * 2)],
-            (alphas, alphas),
-            1
-        ).unsqueeze(2).unsqueeze(3).unsqueeze(4)
         alphas_prev = torch.cat(
             (self.alphas_cumprod[:1], self.alphas_cumprod[ddim_timesteps[:-1]]),
             0
         )
-        alphas_prev = torch.stack(
-            # [alphas_prev for _ in range(num_samples * 2)],
-            (alphas_prev, alphas_prev),
-            1
-        ).unsqueeze(2).unsqueeze(3).unsqueeze(4)
         sqrt_one_minus_alphas = torch.sqrt(1. - alphas)
         # according the the formula provided in https://arxiv.org/abs/2010.02502
         sigmas = eta * torch.sqrt(
@@ -1323,30 +1312,26 @@ class SamplerModel(torch.nn.Module):
         # noise = sigmas_at * rand_noise
         # batch_size = shape[0]
         img = torch.randn(shape, device=device)
-        img = torch.cat(
-            # [img for _ in range(num_samples * 2)],
-            (img, img),
-            0
-        )
+        rand_noise = torch.rand_like(img, device=device) * temperature
+        img = img.repeat(2 * batch_size, 1, 1, 1)
         # becasuse seed, rand is pin, use unsqueeze(0) to auto boradcast
-        rand_noise = torch.rand_like(img, device=device).unsqueeze(0) * temperature
-        noise = sigmas * rand_noise
+        noise = sigmas.unsqueeze(1).unsqueeze(2).unsqueeze(3) * rand_noise
         # --optimizer code end -- #
         for i in range(0, ddim_num_steps, 4):
             index = ddim_num_steps - i
             img = self.union_model(
                 img,
                 hint=control,
-                t=ddim_sampling_tensor[index - 4: index],
+                t=ddim_sampling_tensor[index * 2 - 8: index * 2],
                 context=batch_crossattn,
                 alphas=alphas[index - 4: index],
                 alphas_prev=alphas_prev[index - 4: index],
                 sqrt_one_minus_alphas=sqrt_one_minus_alphas[index - 4: index],
                 noise=noise[index - 4: index],
-                temp_di=temp_di[index -4: index],
+                temp_di=temp_di[index - 4: index],
                 uncond_scale=uncond_scale,
             )
-        img = img[:1]
+        img = img[:batch_size]
         img = 1. / self.scale_factor * img
         img = self.vae_model(img)
         images = (
