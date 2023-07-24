@@ -677,16 +677,14 @@ class hackathon():
             if self.do_summarize:
                 cudart.cudaEventRecord(self.events['clip-stop'], 0)
             shape = (num_samples, 4, H // 8, W // 8)
-            samples, _intermediates = self.ddim_sampler.sample(
+            samples = self.ddim_sampler.sample(
                 ddim_steps,
                 num_samples,
                 shape,
                 batch_concat=batch_concat,
                 batch_crossattn=batch_crossattn,
-                verbose=False,
                 eta=eta,
-                unconditional_guidance_scale=scale,
-                do_summarize=self.do_summarize
+                uncond_scale=scale,
             )
             if self.do_summarize:
                 cudart.cudaEventRecord(self.events['vae-start'], 0)

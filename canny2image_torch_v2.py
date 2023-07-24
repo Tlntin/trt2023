@@ -110,7 +110,6 @@ class hackathon():
                 eta=torch.tensor([eta], dtype=torch.float32, device=self.device),
                 uncond_scale=torch.tensor([scale], dtype=torch.float32, device=self.device),
                 ddim_num_steps=ddim_steps,
-                verbose=False,
             )
             x_samples = samples.to(torch.uint8).cpu().numpy()
             results = [x_samples[0]]

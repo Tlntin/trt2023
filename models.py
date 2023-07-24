@@ -995,11 +995,6 @@ class SamplerModel(torch.nn.Module):
         uncond_scale: torch.Tensor,
         temperature=1.,
         ddim_num_steps=20,
-        score_corrector=None,
-        corrector_kwargs=None,
-        verbose=False,
-        dynamic_threshold=None,
-        do_summarize=False,
     ):
         h, w, c = control.shape
         device = control.device
@@ -1046,7 +1041,11 @@ class SamplerModel(torch.nn.Module):
             (1 - alphas_prev) / (1 - alphas) * (1 - alphas / alphas_prev)
         )
         # --- copy end  ---
-        
+        # ---optimizer code for forward -- #
+        alphas = alphas.sqrt()
+        temp_di = (1. - alphas_prev - sigmas ** 2).sqrt()
+        alphas_prev = alphas_prev.sqrt()
+        # noise = sigmas_at * rand_noise
         # batch_size = shape[0]
         img = torch.randn(shape, device=device)
         img = torch.cat(
@@ -1054,31 +1053,23 @@ class SamplerModel(torch.nn.Module):
             (img, img),
             0
         )
-        # becasuse seed, rand is pin
-        rand_noise = torch.rand_like(img, device=device) * temperature
+        # becasuse seed, rand is pin, use unsqueeze(0) to auto boradcast
+        rand_noise = torch.rand_like(img, device=device).unsqueeze(0) * temperature
+        noise = sigmas * rand_noise
+        # --optimizer code end -- #
         for i in range(ddim_num_steps):
             index = ddim_num_steps - i - 1
-            ts = ddim_sampling_tensor[i]
-            alphas_at = alphas[index]
-            alphas_prev_at = alphas_prev[index]
-            sqrt_one_minus_alphas_at = sqrt_one_minus_alphas[index]
-            sigmas_at = sigmas[index]
             img  = self.p_sample_ddim(
                 img,
                 hint=control,
-                t=ts,
+                t=ddim_sampling_tensor[i],
                 batch_crossattn=batch_crossattn,
-                index=index,
-                alphas_at=alphas_at,
-                alphas_prev_at=alphas_prev_at,
-                sigmas_at=sigmas_at,
-                sqrt_one_minus_alphas_at=sqrt_one_minus_alphas_at,
-                rand_noise=rand_noise,
-                score_corrector=score_corrector,
-                corrector_kwargs=corrector_kwargs,
+                alphas_at=alphas[index],
+                alphas_prev_at=alphas_prev[index],
+                sqrt_one_minus_alphas_at=sqrt_one_minus_alphas[index],
+                noise_at=noise[index],
+                temp_di_at=temp_di[index],
                 uncond_scale=uncond_scale,
-                # unconditional_conditioning=unconditional_conditioning,
-                dynamic_threshold=dynamic_threshold
             )
         img = img[:1]
         img = 1. / self.scale_factor * img
@@ -1094,26 +1085,20 @@ class SamplerModel(torch.nn.Module):
         hint,
         t,
         batch_crossattn,
-        index,
         alphas_at,
         alphas_prev_at,
         sqrt_one_minus_alphas_at,
-        sigmas_at,
-        rand_noise,
+        noise_at,
+        temp_di_at,
         uncond_scale: torch.Tensor,
-        score_corrector=None,
-        corrector_kwargs=None,
-        dynamic_threshold=None
     ):
         control = self.control_model(x, hint, t, batch_crossattn)
         b_latent = self.unet_model(x, t, batch_crossattn, control)
-        model_output = b_latent[1] + uncond_scale * (b_latent[0] - b_latent[1])
-        e_t = model_output
-        pred_x0 = (x - sqrt_one_minus_alphas_at * e_t) / alphas_at.sqrt()
+        e_t = b_latent[1] + uncond_scale * (b_latent[0] - b_latent[1])
+        pred_x0 = (x - sqrt_one_minus_alphas_at * e_t) / alphas_at
         # direction pointing to x_t
-        dir_xt = (1. - alphas_prev_at - sigmas_at ** 2).sqrt() * e_t
-        noise = sigmas_at * rand_noise
-        x_prev = alphas_prev_at.sqrt() * pred_x0 + dir_xt + noise
+        dir_xt = temp_di_at * e_t
+        x_prev = alphas_prev_at * pred_x0 + dir_xt + noise_at
         return x_prev
 
 

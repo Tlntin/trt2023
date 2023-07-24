@@ -39,26 +39,9 @@ class TRT_DDIMSampler(object):
         shape,
         batch_concat,
         batch_crossattn,
-        # conditioning=None,
-        # callback=None,
-        # normals_sequence=None,
-        # img_callback=None,
-        # quantize_x0=False,
         eta=0.,
-        # mask=None,
-        # x0=None,
         temperature=1.,
-        score_corrector=None,
-        corrector_kwargs=None,
-        verbose=True,
-        # x_T=None,
-        # log_every_t=100,
-        unconditional_guidance_scale=1.,
-        # unconditional_conditioning=None, # this has to come in the same format as the conditioning, # e.g. as encoded tokens, ...
-        dynamic_threshold=None,
-        do_summarize=False,
-        # ucg_schedule=None,
-        # **kwargs
+        uncond_scale=1.,
     ):
         # --- copy from make schedule ---
         c = self.ddpm_num_timesteps // ddim_num_steps
@@ -93,37 +76,37 @@ class TRT_DDIMSampler(object):
         )
         # --- copy end  ---
         
+        # ---optimizer code for forward -- #
+        alphas = alphas.sqrt()
+        temp_di = (1. - alphas_prev - sigmas ** 2).sqrt()
+        alphas_prev = alphas_prev.sqrt()
+        # noise = sigmas_at * rand_noise
         # batch_size = shape[0]
         img = torch.randn(shape, device=self.device)
-        img = torch.cat((img, img), 0)
-        # becasuse seed, rand is pin
-        rand_noise = torch.rand_like(img, device=self.device) * temperature
-        intermediates = {}
+        img = torch.cat(
+            # [img for _ in range(num_samples * 2)],
+            (img, img),
+            0
+        )
+        # becasuse seed, rand is pin, use unsqueeze(0) to auto boradcast
+        rand_noise = torch.rand_like(img, device=self.device).unsqueeze(0) * temperature
+        noise = sigmas * rand_noise
         for i in range(ddim_num_steps):
             index = ddim_num_steps - i - 1
-            ts = ddim_sampling_tensor[i]
-            alphas_at = alphas[index]
-            alphas_prev_at = alphas_prev[index]
-            sqrt_one_minus_alphas_at = sqrt_one_minus_alphas[index]
-            sigmas_at = sigmas[index]
             img  = self.p_sample_ddim(
                 img,
-                ts,
-                batch_concat=batch_concat,
+                hint=batch_concat,
+                t=ddim_sampling_tensor[i],
                 batch_crossattn=batch_crossattn,
                 index=index,
-                alphas_at=alphas_at,
-                alphas_prev_at=alphas_prev_at,
-                sigmas_at=sigmas_at,
-                sqrt_one_minus_alphas_at=sqrt_one_minus_alphas_at,
-                rand_noise=rand_noise,
-                score_corrector=score_corrector,
-                corrector_kwargs=corrector_kwargs,
-                unconditional_guidance_scale=unconditional_guidance_scale,
-                # unconditional_conditioning=unconditional_conditioning,
-                dynamic_threshold=dynamic_threshold
+                alphas_at=alphas[index],
+                alphas_prev_at=alphas_prev[index],
+                sqrt_one_minus_alphas_at=sqrt_one_minus_alphas[index],
+                noise_at=noise[index],
+                temp_di_at=temp_di[index],
+                uncond_scale=uncond_scale,
             )
-        return img[:batch_size], intermediates
+        return img[:batch_size]
     
     def run_engine(self, model_name: str, feed_dict: dict):
         """
@@ -165,36 +148,27 @@ class TRT_DDIMSampler(object):
     def p_sample_ddim(
         self,
         x,
+        hint,
         t,
-        batch_concat,
         batch_crossattn,
         index,
         alphas_at,
         alphas_prev_at,
         sqrt_one_minus_alphas_at,
-        sigmas_at,
-        rand_noise,
-        score_corrector=None,
-        corrector_kwargs=None,
-        unconditional_guidance_scale=1.,
-        unconditional_conditioning=None,
-        dynamic_threshold=None
+        noise_at,
+        temp_di_at,
+        uncond_scale,
     ):
         if self.do_summarize:
             cudart.cudaEventRecord(self.events[f'union_model_{index}-start'], 0)
-        model_uncond_merge = self.apply_model(x, t, batch_concat, batch_crossattn)
+        b_latent = self.apply_model(x, t, hint, batch_crossattn)
         #model_t = self.apply_model(x, t, c)
         #model_uncond = self.apply_model(x, t, unconditional_conditioning)
         if self.do_summarize:
             cudart.cudaEventRecord(self.events[f'union_model_{index}-stop'], 0)
-        #model_output = model_uncond + unconditional_guidance_scale * (model_t - model_uncond)
-        model_output = model_uncond_merge[1] + unconditional_guidance_scale * (model_uncond_merge[0] - model_uncond_merge[1])
-        e_t = model_output
-        pred_x0 = (x - sqrt_one_minus_alphas_at * e_t) / alphas_at.sqrt()
+        e_t = b_latent[1] + uncond_scale * (b_latent[0] - b_latent[1])
+        pred_x0 = (x - sqrt_one_minus_alphas_at * e_t) / alphas_at
         # direction pointing to x_t
-        dir_xt = (1. - alphas_prev_at - sigmas_at ** 2).sqrt() * e_t
-        # noise = sigmas_at * noise_like(x.shape, self.device, repeat_noise) * temperature
-        # noise = sigmas_at * torch.rand(x.shape, device=self.device) * temperature
-        noise = sigmas_at * rand_noise
-        x_prev = alphas_prev_at.sqrt() * pred_x0 + dir_xt + noise
+        dir_xt = temp_di_at * e_t
+        x_prev = alphas_prev_at * pred_x0 + dir_xt + noise_at
         return x_prev
