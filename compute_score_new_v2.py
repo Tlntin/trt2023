@@ -11,7 +11,7 @@ except ImportError:
     def fg(_):
         return ""
 import datetime
-from canny2image_TRT import hackathon
+from canny2image_TRT_v2 import hackathon
 
 block_idx = InceptionV3.BLOCK_INDEX_BY_DIM[2048]
 model = InceptionV3([block_idx]).to("cuda")
@@ -70,6 +70,4 @@ time_list = [round(t, 2) for t in time_list]
 print("cost time list ", time_list)
 print("PD score, max is {:.4f}, avg: {:.4f}: ".format(max(score_list), avg_score))
 print("time cost, max is {:.2f}ms, avg: {:.2f}ms: ".format(max(time_list), avg_time))
-
-
 

@@ -50,9 +50,9 @@ class TRT_DDIMSampler(object):
             dtype=torch.long,
             device=self.device
         )
-        flip_ddim_timesteps = torch.flip(ddim_timesteps, [0])
+        # flip_ddim_timesteps = torch.flip(ddim_timesteps, [0])
         ddim_sampling_tensor = torch.stack(
-            (flip_ddim_timesteps, flip_ddim_timesteps),
+            (ddim_timesteps, ddim_timesteps),
             1
         )
         # ddim sampling parameters
@@ -96,7 +96,7 @@ class TRT_DDIMSampler(object):
             img  = self.p_sample_ddim(
                 img,
                 hint=batch_concat,
-                t=ddim_sampling_tensor[i],
+                t=ddim_sampling_tensor[index],
                 batch_crossattn=batch_crossattn,
                 index=index,
                 alphas_at=alphas[index],

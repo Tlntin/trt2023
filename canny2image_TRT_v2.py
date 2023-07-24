@@ -308,7 +308,7 @@ class hackathon():
                 for marker in ['start', 'stop']:
                     self.events[stage + '-' + marker] = cudart.cudaEventCreate()[1]
             else:
-                for i in range(self.de_noising_steps):
+                for i in range((self.de_noising_steps + 3) // 4):
                     for marker in ['start', 'stop']:
                         self.events[stage + "_{}".format(i) + '-' + marker] = cudart.cudaEventCreate()[1]
         self.stream = cuda.Stream()
@@ -620,7 +620,7 @@ class hackathon():
                 self.events['clip-stop']
             )[1]
         ))
-        for index in range(self.de_noising_steps):
+        for index in range((self.de_noising_steps + 3) // 4):
             print('| {:^25} | {:>9.2f} ms |'.format(
                 'ControlNet_{} + Unet_{}'.format(index, index),
                 cudart.cudaEventElapsedTime(
@@ -655,14 +655,14 @@ class hackathon():
         ):
         with torch.no_grad():
             img = resize_image(HWC3(input_image), image_resolution)
-            H, W, C = img.shape
+            # H, W, C = img.shape
 
             detected_map = self.apply_canny(img, low_threshold, high_threshold)
             detected_map = HWC3(detected_map)
 
             control = torch.from_numpy(detected_map.copy()).float().cuda() / 255.0
-            control = torch.stack([control for _ in range(num_samples)], dim=0)
-            control = einops.rearrange(control, 'b h w c -> b c h w').clone()
+            # control = torch.stack([control for _ in range(num_samples)], dim=0)
+            # control = einops.rearrange(control, 'b h w c -> b c h w').clone()
 
             if seed == -1:
                 seed = random.randint(0, 65535)
@@ -671,19 +671,19 @@ class hackathon():
                 cudart.cudaEventRecord(self.events['clip-start'], 0)
             text_list = [prompt + ', ' + a_prompt] * num_samples + \
                 [n_prompt] * num_samples
-            batch_concat = torch.cat((control, control), 0)
+            # control = torch.cat((control, control), 0)
             batch_crossattn = self.text_embedding(text_list)
             if self.do_summarize:
                 cudart.cudaEventRecord(self.events['clip-stop'], 0)
-            shape = (num_samples, 4, H // 8, W // 8)
+            # shape = (num_samples, 4, H // 8, W // 8)
             samples = self.ddim_sampler.sample(
-                ddim_steps,
-                num_samples,
-                shape,
-                batch_concat=batch_concat,
+                control=control,
                 batch_crossattn=batch_crossattn,
-                eta=eta,
-                uncond_scale=scale,
+                uncond_scale=torch.tensor(
+                    [scale], dtype=torch.float32, device=self.device
+                ),
+                ddim_num_steps=ddim_steps,
+                eta=eta
             )
             if self.do_summarize:
                 cudart.cudaEventRecord(self.events['vae-start'], 0)
@@ -701,7 +701,7 @@ class hackathon():
     
 
 if __name__ == "__main__":
-    hk = hackathon(do_compare=False, onnx_device="cuda") 
+    hk = hackathon(do_compare=True, onnx_device="cuda", use_cuda_graph=True) 
     hk.initialize()
 
 
