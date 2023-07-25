@@ -939,7 +939,7 @@ class UnionBlock(torch.nn.Module):
         # -- forward 2 --- #
         control = self.control_model(x, hint, t[4: 6], context)
         b_latent = self.unet_model(x, t[4: 6], context, control)
-        e_t = b_latent[1] + uncond_scale * (b_latent[0] - b_latent[1])
+        e_t = b_latent[b:] + uncond_scale * (b_latent[:b] - b_latent[b:])
         pred_x0 = (x - sqrt_one_minus_alphas[2] * e_t) / alphas[2]
         # direction pointing to x_t
         dir_xt = temp_di[2] * e_t
@@ -948,7 +948,7 @@ class UnionBlock(torch.nn.Module):
         # -- forward 1 --- #
         control = self.control_model(x, hint, t[2: 4], context)
         b_latent = self.unet_model(x, t[2: 4], context, control)
-        e_t = b_latent[1] + uncond_scale * (b_latent[0] - b_latent[1])
+        e_t = b_latent[b:] + uncond_scale * (b_latent[:b] - b_latent[b:])
         pred_x0 = (x - sqrt_one_minus_alphas[1] * e_t) / alphas[1]
         # direction pointing to x_t
         dir_xt = temp_di[1] * e_t
@@ -957,7 +957,7 @@ class UnionBlock(torch.nn.Module):
         # -- forward 0 --- #
         control = self.control_model(x, hint, t[: 2], context)
         b_latent = self.unet_model(x, t[: 2], context, control)
-        e_t = b_latent[1] + uncond_scale * (b_latent[0] - b_latent[1])
+        e_t = b_latent[b:] + uncond_scale * (b_latent[:b] - b_latent[b:])
         pred_x0 = (x - sqrt_one_minus_alphas[0] * e_t) / alphas[0]
         # direction pointing to x_t
         dir_xt = temp_di[0] * e_t
