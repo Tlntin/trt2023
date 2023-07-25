@@ -1,4 +1,5 @@
 import torch
+import einops
 from cuda import cudart
 
 
@@ -34,70 +35,63 @@ class TRT_DDIMSampler(object):
     @torch.no_grad()
     def sample(
         self,
-        ddim_num_steps,
-        batch_size,
-        shape,
-        batch_concat,
+        control,
         batch_crossattn,
+        ddim_num_steps,
         eta=0.,
         temperature=1.,
         uncond_scale=1.,
+        batch_size=1,
     ):
+        h, w, c = control.shape
+        device = control.device
+        shape = (batch_size, 4, h // 8, w // 8)
+        # make ddim_num_step % 4 == 0
+        ddim_num_steps = (ddim_num_steps + 3) // 4 * 4
+        control = torch.stack(
+            [control for _ in range(batch_size * 2)],
+            dim=0
+        )
+        control = einops.rearrange(control, 'b h w c -> b c h w')
         # --- copy from make schedule ---
         c = self.ddpm_num_timesteps // ddim_num_steps
         ddim_timesteps = torch.arange(
             1, self.ddpm_num_timesteps + 1, c,
             dtype=torch.long,
-            device=self.device
+            device=device
         )
-        # flip_ddim_timesteps = torch.flip(ddim_timesteps, [0])
-        ddim_sampling_tensor = torch.stack(
-            (ddim_timesteps, ddim_timesteps),
-            1
-        )
+        ddim_sampling_tensor = ddim_timesteps\
+            .unsqueeze(1).repeat(1, 2 * batch_size).view(-1)
         # ddim sampling parameters
         alphas = self.alphas_cumprod[ddim_timesteps]
-        alphas = torch.stack(
-            (alphas, alphas),
-            1
-        ).unsqueeze(2).unsqueeze(3).unsqueeze(4)
         alphas_prev = torch.cat(
             (self.alphas_cumprod[:1], self.alphas_cumprod[ddim_timesteps[:-1]]),
             0
         )
-        alphas_prev = torch.stack(
-            (alphas_prev, alphas_prev),
-            1
-        ).unsqueeze(2).unsqueeze(3).unsqueeze(4)
         sqrt_one_minus_alphas = torch.sqrt(1. - alphas)
         # according the the formula provided in https://arxiv.org/abs/2010.02502
         sigmas = eta * torch.sqrt(
             (1 - alphas_prev) / (1 - alphas) * (1 - alphas / alphas_prev)
         )
         # --- copy end  ---
-        
         # ---optimizer code for forward -- #
         alphas = alphas.sqrt()
         temp_di = (1. - alphas_prev - sigmas ** 2).sqrt()
         alphas_prev = alphas_prev.sqrt()
         # noise = sigmas_at * rand_noise
         # batch_size = shape[0]
-        img = torch.randn(shape, device=self.device)
-        img = torch.cat(
-            # [img for _ in range(num_samples * 2)],
-            (img, img),
-            0
-        )
+        img = torch.randn(shape, device=device)
+        rand_noise = torch.rand_like(img, device=device) * temperature
+        img = img.repeat(2 * batch_size, 1, 1, 1)
         # becasuse seed, rand is pin, use unsqueeze(0) to auto boradcast
-        rand_noise = torch.rand_like(img, device=self.device).unsqueeze(0) * temperature
-        noise = sigmas * rand_noise
+        noise = sigmas.unsqueeze(1).unsqueeze(2).unsqueeze(3) * rand_noise
         for i in range(ddim_num_steps):
             index = ddim_num_steps - i - 1
-            img  = self.p_sample_ddim(
+            img = self.p_sample_ddim(
                 img,
-                hint=batch_concat,
-                t=ddim_sampling_tensor[index],
-                batch_crossattn=batch_crossattn,
+                hint=control,
+                t=ddim_sampling_tensor[index * 2: index * 2 + 2],
+                context=batch_crossattn,
                 index=index,
                 alphas_at=alphas[index],
                 alphas_prev_at=alphas_prev[index],
@@ -123,20 +117,20 @@ class TRT_DDIMSampler(object):
         )
         return result
     
-    def apply_model(self, x_noisy, t, c_concat_merge, c_crossattn_merge, *args, **kwargs):
+    def apply_model(self, sample, hint, timestep, context):
         control_dict = self.run_engine(
             "union_model",
             {
-                "sample": x_noisy,
-                "hint": c_concat_merge,
-                "timestep": t,
-                "context": c_crossattn_merge
+                "sample": sample,
+                "hint": hint,
+                "timestep": timestep,
+                "context": context,
             }
         )
         eps = control_dict["latent"]
         return eps
     
-    def decode_first_stage(self, z, predict_cids=False, force_not_quantize=False):
+    def decode_first_stage(self, z):
         z = 1. / self.scale_factor * z
         # return self.first_stage_model.decode(z)
         return self.run_engine(
@@ -150,7 +144,7 @@ class TRT_DDIMSampler(object):
         x,
         hint,
         t,
-        batch_crossattn,
+        context,
         index,
         alphas_at,
         alphas_prev_at,
@@ -161,12 +155,11 @@ class TRT_DDIMSampler(object):
     ):
         if self.do_summarize:
             cudart.cudaEventRecord(self.events[f'union_model_{index}-start'], 0)
-        b_latent = self.apply_model(x, t, hint, batch_crossattn)
-        #model_t = self.apply_model(x, t, c)
-        #model_uncond = self.apply_model(x, t, unconditional_conditioning)
+        b_latent = self.apply_model(x, hint, t, context)
+        b = x.shape[0] // 2
         if self.do_summarize:
             cudart.cudaEventRecord(self.events[f'union_model_{index}-stop'], 0)
-        e_t = b_latent[1] + uncond_scale * (b_latent[0] - b_latent[1])
+        e_t = b_latent[b:] + uncond_scale * (b_latent[:b] - b_latent[b:])
         pred_x0 = (x - sqrt_one_minus_alphas_at * e_t) / alphas_at
         # direction pointing to x_t
         dir_xt = temp_di_at * e_t

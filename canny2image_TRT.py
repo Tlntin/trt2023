@@ -662,9 +662,6 @@ class hackathon():
             detected_map = HWC3(detected_map)
 
             control = torch.from_numpy(detected_map.copy()).float().cuda() / 255.0
-            control = torch.stack([control for _ in range(num_samples)], dim=0)
-            control = einops.rearrange(control, 'b h w c -> b c h w').clone()
-
             if seed == -1:
                 seed = random.randint(0, 65535)
             seed_everything(seed)
@@ -672,19 +669,16 @@ class hackathon():
                 cudart.cudaEventRecord(self.events['clip-start'], 0)
             text_list = [prompt + ', ' + a_prompt] * num_samples + \
                 [n_prompt] * num_samples
-            batch_concat = torch.cat((control, control), 0)
             batch_crossattn = self.text_embedding(text_list)
             if self.do_summarize:
                 cudart.cudaEventRecord(self.events['clip-stop'], 0)
-            shape = (num_samples, 4, H // 8, W // 8)
             samples = self.ddim_sampler.sample(
-                ddim_steps,
-                num_samples,
-                shape,
-                batch_concat=batch_concat,
+                control=control,
                 batch_crossattn=batch_crossattn,
+                ddim_num_steps=ddim_steps,
                 eta=eta,
                 uncond_scale=scale,
+                batch_size=num_samples,
             )
             if self.do_summarize:
                 cudart.cudaEventRecord(self.events['vae-start'], 0)
