@@ -916,52 +916,15 @@ class UnionBlock(torch.nn.Module):
         temp_di,
         uncond_scale: torch.Tensor,
     ):
-        # for i in range(4):
-        #     index = 3 - i
-        #     control = self.control_model(x, hint, t[index], context)
-        #     b_latent = self.unet_model(x, t[index], context, control)
-        #     e_t = b_latent[1] + uncond_scale * (b_latent[0] - b_latent[1])
-        #     pred_x0 = (x - sqrt_one_minus_alphas[index] * e_t) / alphas[index]
-        #     # direction pointing to x_t
-        #     dir_xt = temp_di[index] * e_t
-        #     x = alphas_prev[index] * pred_x0 + dir_xt + noise[index]
-        # -- forward 3 --- #
         b = x.shape[0] // 2
-        control = self.control_model(x, hint, t[6:], context)
-        b_latent = self.unet_model(x, t[6:], context, control)
-        # e_t shape = [batch, 4, 32, 48]
+        # do like this like self.apply_model
+        control = self.control_model(x, hint, t, context)
+        b_latent = self.unet_model(x, t, context, control)
         e_t = b_latent[b:] + uncond_scale * (b_latent[:b] - b_latent[b:])
-        pred_x0 = (x - sqrt_one_minus_alphas[3] * e_t) / alphas[3]
+        pred_x0 = (x - sqrt_one_minus_alphas * e_t) / alphas
         # direction pointing to x_t
-        dir_xt = temp_di[3] * e_t
-        x = alphas_prev[3] * pred_x0 + dir_xt + noise[3]
-
-        # -- forward 2 --- #
-        control = self.control_model(x, hint, t[4: 6], context)
-        b_latent = self.unet_model(x, t[4: 6], context, control)
-        e_t = b_latent[b:] + uncond_scale * (b_latent[:b] - b_latent[b:])
-        pred_x0 = (x - sqrt_one_minus_alphas[2] * e_t) / alphas[2]
-        # direction pointing to x_t
-        dir_xt = temp_di[2] * e_t
-        x = alphas_prev[2] * pred_x0 + dir_xt + noise[2]
-
-        # -- forward 1 --- #
-        control = self.control_model(x, hint, t[2: 4], context)
-        b_latent = self.unet_model(x, t[2: 4], context, control)
-        e_t = b_latent[b:] + uncond_scale * (b_latent[:b] - b_latent[b:])
-        pred_x0 = (x - sqrt_one_minus_alphas[1] * e_t) / alphas[1]
-        # direction pointing to x_t
-        dir_xt = temp_di[1] * e_t
-        x = alphas_prev[1] * pred_x0 + dir_xt + noise[1]
-
-        # -- forward 0 --- #
-        control = self.control_model(x, hint, t[: 2], context)
-        b_latent = self.unet_model(x, t[: 2], context, control)
-        e_t = b_latent[b:] + uncond_scale * (b_latent[:b] - b_latent[b:])
-        pred_x0 = (x - sqrt_one_minus_alphas[0] * e_t) / alphas[0]
-        # direction pointing to x_t
-        dir_xt = temp_di[0] * e_t
-        x = alphas_prev[0] * pred_x0 + dir_xt + noise[0]
+        dir_xt = temp_di * e_t
+        x = alphas_prev * pred_x0 + dir_xt + noise
         return x
 
 
@@ -1019,7 +982,7 @@ class UnionModelV2(BaseModel):
         return {
             'sample': {0: '2B', 2: 'H', 3: 'W'},
             "hint": {0: '2B', 2: 'height', 3: 'width'},
-            "timestep": {0: "8B"},
+            "timestep": {0: "2B"},
             "context": {0: '2B'},
             "noise": {2: "H", 3: "W"},
             'latent': {0: '2B', 2: 'H', 3: 'W'}
@@ -1053,9 +1016,9 @@ class UnionModelV2(BaseModel):
                 (max_batch * 2, 3, max_image_height, max_image_width) # max
             ],
             "timestep": [
-                (8 * batch_size, ),     
-                (8 * batch_size, ),
-                (8 * batch_size, )
+                (batch_size * 2, ),     
+                (batch_size * 2, ),
+                (batch_size * 2, )
             ],
             "context": [
                 (min_batch * 2, self.text_maxlen, self.embedding_dim),
@@ -1063,30 +1026,29 @@ class UnionModelV2(BaseModel):
                 (max_batch * 2, self.text_maxlen, self.embedding_dim)
             ],
             "alphas": [
-                (4, ),     
-                (4, ),
-                (4, )
+                (1, ),     
+                (1, ),
+                (1, )
             ],
             "alphas_prev":[
-                (4, ),     
-                (4, ),
-                (4, )
-
+                (1, ),     
+                (1, ),
+                (1, )
             ],
             "sqrt_one_minus_alphas": [
-                (4, ),     
-                (4, ),
-                (4, )
+                (1, ),     
+                (1, ),
+                (1, )
             ],
             "noise": [
-                (4, self.unet_dim, min_latent_height, min_latent_width),
-                (4, self.unet_dim, latent_height, latent_width),
-                (4, self.unet_dim, max_latent_height, max_latent_width)
+                (1, self.unet_dim, min_latent_height, min_latent_width),
+                (1, self.unet_dim, latent_height, latent_width),
+                (1, self.unet_dim, max_latent_height, max_latent_width)
             ],
             "temp_di": [
-                (4, ),
-                (4, ),
-                (4, ),
+                (1, ),
+                (1, ),
+                (1, ),
             ],
             "uncond_scale": [
                 (1, ),
@@ -1100,13 +1062,13 @@ class UnionModelV2(BaseModel):
         return {
             'sample': (batch_size * 2, self.unet_dim, latent_height, latent_width),
             'hint': (batch_size * 2, 3, image_height, image_width),
-            "timestep": (8 * batch_size, ),
+            "timestep": (2 * batch_size, ),
             "context": (batch_size * 2, self.text_maxlen, self.embedding_dim),
-            "alphas": (4, ),
-            "alphas_prev": (4, ),
-            "sqrt_one_minus_alphas": (4, ),
-            "noise": (4, self.unet_dim, latent_height, latent_width),
-            "temp_di": (4, ),
+            "alphas": (1, ),
+            "alphas_prev": (1, ),
+            "sqrt_one_minus_alphas": (1, ),
+            "noise": (1, self.unet_dim, latent_height, latent_width),
+            "temp_di": (1, ),
             "uncond_scale": (1,),
             'latent': (batch_size * 2, self.unet_dim, latent_height, latent_width)
         }
@@ -1133,14 +1095,8 @@ class UnionModelV2(BaseModel):
                 dtype=dtype,
                 device=self.device
             ),
-            # "timestep": ["8B"],
-            torch.arange(
-                801,
-                1001,
-                50,
-                dtype=torch.int32,
-                device=self.device
-            ).unsqueeze(1).repeat(1, batch_size * 2).view(-1),
+            # "timestep": ["2B"],
+            torch.tensor([951, 951], dtype=torch.int32, device=self.device),
             # "context": ['2B', 'T', 'E']
             torch.randn(
                 batch_size * 2,
@@ -1150,19 +1106,19 @@ class UnionModelV2(BaseModel):
                 device=self.device
             ),
             # alphas: [4]
-            torch.randn(4, dtype=dtype, device=self.device),
+            torch.randn(1, dtype=dtype, device=self.device),
             # alphas_prev: [4]
-            torch.randn(4, dtype=dtype, device=self.device),
+            torch.randn(1, dtype=dtype, device=self.device),
             # sqrt_one_minus_alphas: [4]
-            torch.randn(4, dtype=dtype, device=self.device),
-            # noise: [4, 4, H, W]
+            torch.randn(1, dtype=dtype, device=self.device),
+            # noise: [1, 4, H, W]
             torch.randn(
-                (4, self.unet_dim, latent_height, latent_width),
+                (1, self.unet_dim, latent_height, latent_width),
                 dtype=dtype,
                 device=self.device,
             ),
             # temp_di
-            torch.randn(4, dtype=dtype, device=self.device),
+            torch.randn(1, dtype=dtype, device=self.device),
             # "uncond_scale":
             torch.tensor([9.0], dtype=dtype, device=self.device),
         )
@@ -1272,12 +1228,7 @@ class SamplerModel(torch.nn.Module):
         h, w, c = control.shape
         device = control.device
         shape = (batch_size, 4, h // 8, w // 8)
-        # make ddim_num_step % 4 == 0
-        ddim_num_steps = (ddim_num_steps + 3) // 4 * 4
-        control = torch.stack(
-            [control for _ in range(batch_size * 2)],
-            dim=0
-        )
+        control = control.unsqueeze(0).repeat(2 * batch_size, 1, 1, 1)
         control = einops.rearrange(control, 'b h w c -> b c h w')
         clip_outputs = self.clip_model(input_ids)
         batch_crossattn = clip_outputs.last_hidden_state
@@ -1288,8 +1239,7 @@ class SamplerModel(torch.nn.Module):
             dtype=torch.int32,
             device=device
         )
-        ddim_sampling_tensor = ddim_timesteps\
-            .unsqueeze(1).repeat(1, 2 * batch_size).view(-1)
+        ddim_sampling_tensor = ddim_timesteps.unsqueeze(1).repeat(1, 2 * batch_size)
         # ddim sampling parameters
         alphas = self.alphas_cumprod[ddim_timesteps]
         alphas_prev = torch.cat(
@@ -1314,18 +1264,18 @@ class SamplerModel(torch.nn.Module):
         # becasuse seed, rand is pin, use unsqueeze(0) to auto boradcast
         noise = sigmas.unsqueeze(1).unsqueeze(2).unsqueeze(3) * rand_noise
         # --optimizer code end -- #
-        for i in range(0, ddim_num_steps, 4):
-            index = ddim_num_steps - i
+        for i in range(0, ddim_num_steps):
+            index = ddim_num_steps - i - 1
             img = self.union_model(
                 img,
                 hint=control,
-                t=ddim_sampling_tensor[index * 2 - 8: index * 2],
+                t=ddim_sampling_tensor[index],
                 context=batch_crossattn,
-                alphas=alphas[index - 4: index],
-                alphas_prev=alphas_prev[index - 4: index],
-                sqrt_one_minus_alphas=sqrt_one_minus_alphas[index - 4: index],
-                noise=noise[index - 4: index],
-                temp_di=temp_di[index - 4: index],
+                alphas=alphas[index],
+                alphas_prev=alphas_prev[index],
+                sqrt_one_minus_alphas=sqrt_one_minus_alphas[index],
+                noise=noise[index],
+                temp_di=temp_di[index],
                 uncond_scale=uncond_scale,
             )
         img = img[:batch_size]

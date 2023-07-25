@@ -2,7 +2,6 @@ from share import *
 import config
 import cv2
 import einops
-# import gradio as gr
 import numpy as np
 import torch
 import random
@@ -308,7 +307,7 @@ class hackathon():
                 for marker in ['start', 'stop']:
                     self.events[stage + '-' + marker] = cudart.cudaEventCreate()[1]
             else:
-                for i in range((self.de_noising_steps + 3) // 4):
+                for i in range(self.de_noising_steps):
                     for marker in ['start', 'stop']:
                         self.events[stage + "_{}".format(i) + '-' + marker] = cudart.cudaEventCreate()[1]
         self.stream = cuda.Stream()
@@ -620,7 +619,7 @@ class hackathon():
                 self.events['clip-stop']
             )[1]
         ))
-        for index in range((self.de_noising_steps + 3) // 4):
+        for index in range(self.de_noising_steps):
             print('| {:^25} | {:>9.2f} ms |'.format(
                 'ControlNet_{} + Unet_{}'.format(index, index),
                 cudart.cudaEventElapsedTime(
