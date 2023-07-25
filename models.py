@@ -388,7 +388,7 @@ class ControlNet(BaseModel):
                 self.unet_dim,
                 latent_height,
                 latent_width,
-                dtype=torch.float32,
+                dtype=dtype,
                 device=self.device
             ),
             # 'hint': ['B', 3, 'image_height', 'image_width']
@@ -397,11 +397,11 @@ class ControlNet(BaseModel):
                 3,
                 image_height,
                 image_width,
-                dtype=torch.float32,
+                dtype=dtype,
                 device=self.device
             ),
             # "timestep": ['B'],
-            torch.tensor([1.], dtype=torch.float32, device=self.device),
+            torch.tensor([1.], dtype=torch.int32, device=self.device),
             # "context": ['B', 'T', 'E']
             torch.randn(
                 batch_size,
@@ -607,11 +607,11 @@ class UNet(BaseModel):
                 self.unet_dim,
                 latent_height,
                 latent_width,
-                dtype=torch.float32,
+                dtype=dtype,
                 device=self.device
             ),
             # "timestep": ['B'],
-            torch.tensor([1.], dtype=torch.float32, device=self.device),
+            torch.tensor([951] * batch_size, dtype=torch.int32, device=self.device),
             # "context": ['B', 'T', 'E']
             torch.randn(
                 batch_size,
@@ -870,7 +870,7 @@ class UnionModel(BaseModel):
                 self.unet_dim,
                 latent_height,
                 latent_width,
-                dtype=torch.float32,
+                dtype=dtype,
                 device=self.device
             ),
             # 'hint': ['B', 3, 'image_height', 'image_width']
@@ -879,11 +879,13 @@ class UnionModel(BaseModel):
                 3,
                 image_height,
                 image_width,
-                dtype=torch.float32,
+                dtype=dtype,
                 device=self.device
             ),
             # "timestep": ['B'],
-            torch.tensor([1.], dtype=torch.float32, device=self.device),
+            torch.tensor(
+                [951] * batch_size, dtype=torch.int32, device=self.device
+            ),
             # "context": ['B', 'T', 'E']
             torch.randn(
                 batch_size,
@@ -1017,18 +1019,13 @@ class UnionModelV2(BaseModel):
         return {
             'sample': {0: '2B', 2: 'H', 3: 'W'},
             "hint": {0: '2B', 2: 'height', 3: 'width'},
-            "timestep": {1: '2B'},
+            "timestep": {0: "8B"},
             "context": {0: '2B'},
-            "alphas": {1: "2B"},
-            "alphas_prev": {1: "2B"},
-            "sqrt_one_minus_alphas": {1: "2B"},
-            "noise": {1: "2B", 3: "H", 4: "W"},
-            "temp_di": {1: "2B"},
+            "noise": {2: "H", 3: "W"},
             'latent': {0: '2B', 2: 'H', 3: 'W'}
         }
 
     def get_input_profile(self, batch_size, image_height, image_width, static_batch, static_shape):
-        assert batch_size % 2 == 0
         latent_height, latent_width = self.check_dims(batch_size, image_height, image_width)
         (
             min_batch, max_batch,
@@ -1046,126 +1043,126 @@ class UnionModelV2(BaseModel):
             )
         return {
             'sample': [
-                (min_batch, self.unet_dim, min_latent_height, min_latent_width), # min
-                (batch_size, self.unet_dim, latent_height, latent_width), # opt
-                (max_batch, self.unet_dim, max_latent_height, max_latent_width) # max
+                (min_batch * 2, self.unet_dim, min_latent_height, min_latent_width), # min
+                (batch_size * 2, self.unet_dim, latent_height, latent_width), # opt
+                (max_batch * 2, self.unet_dim, max_latent_height, max_latent_width) # max
             ],
             "hint": [
-                (min_batch, 3, min_image_height, min_image_width), # min
-                (batch_size, 3, image_height, image_width), # opt
-                (max_batch, 3, max_image_height, max_image_width) # max
+                (min_batch * 2, 3, min_image_height, min_image_width), # min
+                (batch_size * 2, 3, image_height, image_width), # opt
+                (max_batch * 2, 3, max_image_height, max_image_width) # max
             ],
             "timestep": [
-                (4, min_batch,),     
-                (4, batch_size,),
-                (4, max_batch,)
+                (8 * batch_size, ),     
+                (8 * batch_size, ),
+                (8 * batch_size, )
             ],
             "context": [
-                (min_batch, self.text_maxlen, self.embedding_dim),
-                (batch_size, self.text_maxlen, self.embedding_dim),
-                (max_batch, self.text_maxlen, self.embedding_dim)
+                (min_batch * 2, self.text_maxlen, self.embedding_dim),
+                (batch_size * 2, self.text_maxlen, self.embedding_dim),
+                (max_batch * 2, self.text_maxlen, self.embedding_dim)
             ],
             "alphas": [
-                (4, min_batch, 1, 1, 1),
-                (4, batch_size, 1, 1, 1),
-                (4, max_batch, 1, 1, 1),
+                (4, ),     
+                (4, ),
+                (4, )
             ],
             "alphas_prev":[
-                (4, min_batch, 1, 1, 1),
-                (4, batch_size, 1, 1, 1),
-                (4, max_batch, 1, 1, 1),
+                (4, ),     
+                (4, ),
+                (4, )
 
             ],
             "sqrt_one_minus_alphas": [
-                (4, min_batch, 1, 1, 1),
-                (4, batch_size, 1, 1, 1),
-                (4, max_batch, 1, 1, 1),
+                (4, ),     
+                (4, ),
+                (4, )
             ],
             "noise": [
-                (4, min_batch, self.unet_dim, min_latent_height, min_latent_width),
-                (4, batch_size, self.unet_dim, latent_height, latent_width),
-                (4, max_batch, self.unet_dim, max_latent_height, max_latent_width)
+                (4, self.unet_dim, min_latent_height, min_latent_width),
+                (4, self.unet_dim, latent_height, latent_width),
+                (4, self.unet_dim, max_latent_height, max_latent_width)
             ],
             "temp_di": [
-                (4, min_batch, 1, 1, 1),
-                (4, batch_size, 1, 1, 1),
-                (4, max_batch, 1, 1, 1),
+                (4, ),
+                (4, ),
+                (4, ),
             ],
             "uncond_scale": [
-                (1,),
-                (1,),
-                (1,)
+                (1, ),
+                (1, ),
+                (1, )
             ],
         }
 
     def get_shape_dict(self, batch_size, image_height, image_width):
-        assert batch_size % 2 == 0
         latent_height, latent_width = self.check_dims(batch_size, image_height, image_width)
         return {
-            'sample': (batch_size, self.unet_dim, latent_height, latent_width),
-            'hint': (batch_size, 3, image_height, image_width),
-            "timestep": (4, batch_size),
-            "context": (batch_size, self.text_maxlen, self.embedding_dim),
-            "alphas": (4, batch_size, 1, 1, 1),
-            "alphas_prev": (4, batch_size, 1, 1, 1),
-            "sqrt_one_minus_alphas": (4, batch_size, 1, 1, 1),
-            "noise": (4, batch_size, self.unet_dim, latent_height, latent_width),
-            "temp_di": (4, batch_size, 1, 1, 1),
+            'sample': (batch_size * 2, self.unet_dim, latent_height, latent_width),
+            'hint': (batch_size * 2, 3, image_height, image_width),
+            "timestep": (8 * batch_size, ),
+            "context": (batch_size * 2, self.text_maxlen, self.embedding_dim),
+            "alphas": (4, ),
+            "alphas_prev": (4, ),
+            "sqrt_one_minus_alphas": (4, ),
+            "noise": (4, self.unet_dim, latent_height, latent_width),
+            "temp_di": (4, ),
             "uncond_scale": (1,),
-            'latent': (batch_size, self.unet_dim, latent_height, latent_width)
+            'latent': (batch_size * 2, self.unet_dim, latent_height, latent_width)
         }
 
     def get_sample_input(self, batch_size, image_height, image_width):
-        assert batch_size % 2 == 0
         latent_height, latent_width = self.check_dims(batch_size, image_height, image_width)
         dtype = torch.float16 if self.fp16 else torch.float32
         return (
-            # 'sample': ['B', 4, 'latent_height', 'latent_width']
+            # 'sample': ['2B', 4, 'latent_height', 'latent_width']
             torch.randn(
-                batch_size,
+                batch_size * 2,
                 self.unet_dim,
                 latent_height,
                 latent_width,
-                dtype=torch.float32,
+                dtype=dtype,
                 device=self.device
             ),
-            # 'hint': ['B', 3, 'image_height', 'image_width']
+            # 'hint': ['2B', 3, 'image_height', 'image_width']
             torch.randn(
-                batch_size,
+                batch_size * 2,
                 3,
                 image_height,
                 image_width,
-                dtype=torch.float32,
+                dtype=dtype,
                 device=self.device
             ),
-            # "timestep": [4, 'B'],
-            torch.tensor(
-                [[1., 1.] for _ in range(4)],
-                dtype=torch.float32,
+            # "timestep": ["8B"],
+            torch.arange(
+                801,
+                1001,
+                50,
+                dtype=torch.int32,
                 device=self.device
-            ),
-            # "context": ['B', 'T', 'E']
+            ).unsqueeze(1).repeat(1, batch_size * 2).view(-1),
+            # "context": ['2B', 'T', 'E']
             torch.randn(
-                batch_size,
+                batch_size * 2,
                 self.text_maxlen,
                 self.embedding_dim,
                 dtype=dtype,
                 device=self.device
             ),
-            # alphas
-            torch.randn((4, batch_size, 1, 1, 1), dtype=dtype, device=self.device),
-            # alphas_prev
-            torch.randn((4, batch_size, 1, 1, 1), dtype=dtype, device=self.device),
-            # sqrt_one_minus_alphas
-            torch.randn((4, batch_size, 1, 1, 1), dtype=dtype, device=self.device),
-            # noise
+            # alphas: [4]
+            torch.randn(4, dtype=dtype, device=self.device),
+            # alphas_prev: [4]
+            torch.randn(4, dtype=dtype, device=self.device),
+            # sqrt_one_minus_alphas: [4]
+            torch.randn(4, dtype=dtype, device=self.device),
+            # noise: [4, 4, H, W]
             torch.randn(
-                (4, batch_size, self.unet_dim, latent_height, latent_width),
+                (4, self.unet_dim, latent_height, latent_width),
                 dtype=dtype,
                 device=self.device,
             ),
             # temp_di
-            torch.randn((4, batch_size, 1, 1, 1), dtype=dtype, device=self.device),
+            torch.randn(4, dtype=dtype, device=self.device),
             # "uncond_scale":
             torch.tensor([9.0], dtype=dtype, device=self.device),
         )
@@ -1288,7 +1285,7 @@ class SamplerModel(torch.nn.Module):
         c = self.ddpm_num_timesteps // ddim_num_steps
         ddim_timesteps = torch.arange(
             1, self.ddpm_num_timesteps + 1, c,
-            dtype=torch.long,
+            dtype=torch.int32,
             device=device
         )
         ddim_sampling_tensor = ddim_timesteps\

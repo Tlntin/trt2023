@@ -109,9 +109,9 @@ class hackathon():
                 "max": 2,
             },
             "union_model_v2": {
-                "min": 2,
-                "opt": 2,
-                "max": 2,
+                "min": 1,
+                "opt": 1,
+                "max": 1,
             },
             "vae": {
                 "min": 1,

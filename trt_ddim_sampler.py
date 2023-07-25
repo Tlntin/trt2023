@@ -47,7 +47,7 @@ class TRT_DDIMSampler(object):
         device = control.device
         shape = (batch_size, 4, h // 8, w // 8)
         # make ddim_num_step % 4 == 0
-        ddim_num_steps = (ddim_num_steps + 3) // 4 * 4
+        # ddim_num_steps = (ddim_num_steps + 3) // 4 * 4
         control = torch.stack(
             [control for _ in range(batch_size * 2)],
             dim=0
@@ -57,7 +57,7 @@ class TRT_DDIMSampler(object):
         c = self.ddpm_num_timesteps // ddim_num_steps
         ddim_timesteps = torch.arange(
             1, self.ddpm_num_timesteps + 1, c,
-            dtype=torch.long,
+            dtype=torch.int32,
             device=device
         )
         ddim_sampling_tensor = ddim_timesteps\
