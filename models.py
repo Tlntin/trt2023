@@ -21,6 +21,7 @@ import onnx_graphsurgeon as gs
 from polygraphy.backend.onnx.loader import fold_constants
 import torch
 import onnx
+import os
 
 class Optimizer():
     def __init__(
@@ -928,6 +929,58 @@ class UnionBlock(torch.nn.Module):
         return x
 
 
+class UnionBlockPT(torch.nn.Module):
+    def __init__(self, control_model, unet_model):
+        super(UnionBlockPT, self).__init__()
+        self.control_model = control_model
+        self.unet_model = unet_model
+        now_dir = os.path.dirname(os.path.abspath(__file__))
+        self.carlibre_dir = os.path.join(now_dir, "output", "calibre")
+        if not os.path.exists(self.carlibre_dir):
+            os.mkdir(self.carlibre_dir)
+
+    def forward(
+        self,
+        x,
+        hint,
+        t,
+        context,
+        alphas,
+        alphas_prev,
+        sqrt_one_minus_alphas,
+        noise,
+        temp_di,
+        uncond_scale: torch.Tensor,
+        save_sample = False
+    ):
+        if save_sample:
+            index = len(os.listdir(self.carlibre_dir))
+            input_path = os.path.join(self.carlibre_dir, f"{index}.npz")
+            input_dict = {
+                "sample": x.detach().cpu().data.numpy(),
+                "hint": hint.detach().cpu().data.numpy(),
+                "timestep": t.detach().cpu().data.numpy(),
+                "context": context.detach().cpu().data.numpy(),
+                "alphas": alphas.detach().cpu().data.numpy(),
+                "alphas_prev": alphas_prev.detach().cpu().data.numpy(),
+                "sqrt_one_minus_alphas": sqrt_one_minus_alphas.detach().cpu().data.numpy(),
+                "noise": noise.detach().cpu().data.numpy(),
+                "temp_di": temp_di.detach().cpu().data.numpy(),
+                "uncond_scale": uncond_scale.detach().cpu().data.numpy(),
+            }
+            np.savez(input_path, **input_dict)
+        b = x.shape[0] // 2
+        # do like this like self.apply_model
+        control = self.control_model(x, hint, t, context)
+        b_latent = self.unet_model(x, t, context, control)
+        e_t = b_latent[b:] + uncond_scale * (b_latent[:b] - b_latent[b:])
+        pred_x0 = (x - sqrt_one_minus_alphas * e_t) / alphas
+        # direction pointing to x_t
+        dir_xt = temp_di * e_t
+        x = alphas_prev * pred_x0 + dir_xt + noise
+        return x
+
+
 
 class UnionModelV2(BaseModel):
     def __init__(self,
@@ -1208,7 +1261,7 @@ class SamplerModel(torch.nn.Module):
         ):
         super().__init__()
         self.clip_model = clip_model
-        self.union_model = UnionBlock(control_model, unet_model)
+        self.union_model = UnionBlockPT(control_model, unet_model)
         self.vae_model = vae_model
         self.scale_factor = scale_factor
         self.alphas_cumprod = alphas_cumprod
@@ -1224,6 +1277,7 @@ class SamplerModel(torch.nn.Module):
         ddim_num_steps = 20,
         temperature: float = 1.,
         batch_size: int = 1,
+        save_sample=False,
     ):
         h, w, c = control.shape
         device = control.device
@@ -1271,12 +1325,13 @@ class SamplerModel(torch.nn.Module):
                 hint=control,
                 t=ddim_sampling_tensor[index],
                 context=batch_crossattn,
-                alphas=alphas[index],
-                alphas_prev=alphas_prev[index],
-                sqrt_one_minus_alphas=sqrt_one_minus_alphas[index],
-                noise=noise[index],
-                temp_di=temp_di[index],
+                alphas=alphas[index: index + 1],
+                alphas_prev=alphas_prev[index: index + 1],
+                sqrt_one_minus_alphas=sqrt_one_minus_alphas[index: index + 1],
+                noise=noise[index: index + 1],
+                temp_di=temp_di[index: index + 1],
                 uncond_scale=uncond_scale,
+                save_sample=save_sample,
             )
         img = img[:batch_size]
         img = 1. / self.scale_factor * img

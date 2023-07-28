@@ -11,7 +11,7 @@ from cldm.model import create_model, load_state_dict
 from models import SamplerModel
 
 
-class hackathon():
+class hackathon_pt():
     def __init__(
         self,
         onnx_device: str = "cuda",
@@ -84,7 +84,8 @@ class hackathon():
             seed: int,
             eta: float,
             low_threshold: float,
-            high_threshold: float
+            high_threshold: float,
+            save_sample: bool = False,
         ):
         with torch.no_grad():
             img = resize_image(HWC3(input_image), image_resolution)
@@ -107,6 +108,7 @@ class hackathon():
                 ddim_num_steps=ddim_steps,
                 eta=eta,
                 batch_size=num_samples,
+                save_sample=save_sample,
             )
             x_samples = samples.to(torch.uint8).cpu().numpy()
             results = [x_samples[0]]

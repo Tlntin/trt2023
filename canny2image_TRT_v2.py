@@ -23,7 +23,7 @@ from trt_ddim_sampler_v2 import TRT_DDIMSampler
 #-----------add for compare func -----------
 from polygraphy.backend.common import BytesFromPath
 from polygraphy.backend.onnxrt import OnnxrtRunner, SessionFromOnnx
-from polygraphy.backend.trt import EngineFromBytes, TrtRunner
+from polygraphy.backend.trt import Calibrator, EngineFromBytes, TrtRunner
 from polygraphy.common import TensorMetadata
 from polygraphy.comparator import Comparator, CompareFunc, DataLoader
 
@@ -43,6 +43,8 @@ class hackathon():
         verbose=False,
         nvtx_profile=False,
         use_cuda_graph=True,
+        use_int8=False,
+        use_trt_exec=True,
         do_summarize = False,
         do_compare: bool = False,
         builder_optimization_level=5,
@@ -118,6 +120,11 @@ class hackathon():
                 "max": 1,
             }
         }
+        self.use_int8 = use_int8
+        self.use_trt_exec = use_trt_exec
+        self.calibre_dir = os.path.join(now_dir, "output", "calibre")
+        if not os.path.exists(self.calibre_dir):
+            os.mkdir(self.calibre_dir)
         self.use_cuda_graph = use_cuda_graph
         self.stream = None
         self.cuda_stream = None
@@ -130,6 +137,73 @@ class hackathon():
         self.shared_device_memory = None
         self.embedding_dim = get_embedding_dim(self.version)
 
+    @staticmethod
+    def calcuate_data_with_pytroch():
+        # use cannny2image_torch_v2 to save input/output data for numpy
+        from canny2image_torch_v2 import hackathon_pt
+        from tqdm import trange
+        torch_hk = hackathon_pt()
+        torch_hk.initialize()
+        for i in trange(20, desc="get int8 from pytorch v2"):
+            path = os.path.join(now_dir, "test_imgs", "bird_"+ str(i) + ".jpg")
+            img = cv2.imread(path)
+            # generate by ChatGPT4
+            prompt_list = [
+                "best quality, extremely detailed",
+                "Exceptional clarity, high precision",
+                "Finest grade, comprehensive detailing",
+                "Superior resolution, intricate nuances",
+                "Outstanding sharpness, thorough particulars",
+                "Prime standard, exhaustive intricacy",
+                "Elite level, very comprehensive",
+                "First-rate quality, highly meticulous",
+                "Top-tier precision, extreme specifics",
+                "High-class accuracy, remarkably detailed",
+                "Unsurpassed quality, in-depth refinement",
+                "Premium-grade sharpness, elaborate detailing",
+                "Matchless clarity, intensive particulars",
+            ]
+            # genearate by ChatGPT4
+            n_prompt_list = [
+                "longbody, lowres, bad anatomy, bad hands, missing fingers",
+                "Elongated torso, low definition, incorrect structure, poor wings, missing feathers",
+                "Extended body, pixelated image, flawed anatomy, badly-drawn talons, absent tail",
+                "Longish figure, low quality, unsound morphology, poorly depicted beak, lacking claws",
+                "Overstretched form, blurry picture, bad biological makeup, unskillfully illustrated wings, missing flight feathers",
+                "Lengthy physique, poor resolution, improper formation, badly crafted feet, no crest",
+                "Drawn out body, low dpi, erroneous anatomy, poorly rendered legs, missing beak",
+                "Stretched silhouette, low pixel count, incorrect body structure, bad portrayal of wings, absence of tail feathers",
+                "Lengthened shape, grainy quality, unfaithful representation of anatomy, badly depicted talons, lacking feathers",
+                "Long build, poor image quality, inaccurate structure, improperly rendered beak, missing claws",
+                "Excessive length, low clarity, wrong biological details, poorly drawn wings, absent tail feathers",
+                "Prolonged figure, fuzzy resolution, bad depiction of bird anatomy, unconvincing feet, no crest",
+                "Overlong structure, low-grade picture, erroneous depiction of bird structure, poorly sketched legs, missing beak",
+            ]
+            # generate by chatGPT4
+            seed_list = [
+                3827940, 5061827, 9385621, 1209384, 8492653, 755422, 645372,
+                7394016 ,2638491 ,9548023, 4921658, 7869432, 655822,
+            ]
+            assert len(prompt_list) == len(n_prompt_list)
+            assert len(prompt_list) == len(seed_list)
+            for (prompt, n_prompt, seed) in zip(prompt_list, n_prompt_list, seed_list):
+                _ = torch_hk.process(
+                    img,
+                    "a bird", 
+                    prompt,
+                    n_prompt,
+                    1, 
+                    256, 
+                    20,
+                    False, 
+                    1,
+                    9, 
+                    seed,
+                    0.0, 
+                    100, 
+                    200,
+                    save_sample=True,
+                )
     def initialize(self):
         self.apply_canny = CannyDetector()
         model = create_model('./models/cldm_v15.yaml').cpu()
@@ -510,10 +584,38 @@ class hackathon():
                 #     use_sparse_weights=True
                 # else:
                 #     use_sparse_weights=False
+                if self.use_int8 and model_name == "union_model_v2":
+                    use_int8 = True
+                    n = len(os.listdir(self.calibre_dir))
+                    if n < 400:
+                        self.calcuate_data_with_pytroch()
+                    else:
+                        print(f"found {n} calibre data")
+                    def calib_data():
+                        file_list = os.listdir(self.calibre_dir)
+                        file_list.sort(key=lambda x: int(x.split(".")[0]))
+                        for file in file_list:
+                            file_path = os.path.join(self.calibre_dir, file)
+                            data = np.load(file_path)
+                            yield data
+                    calibrator = Calibrator(
+                        data_loader=calib_data(),
+                        cache=os.path.join(
+                            now_dir,
+                            "output",
+                            "identity-calib.cache"
+                        )
+                    ) 
+                else:
+                    use_int8 = False
+                    calibrator = None
                 engine.build(
                     onnx_opt_path,
                     fp16=True,
                     #fp16=use_fp16,
+                    calibrator = calibrator,
+                    int8=use_int8,
+                    use_trt_exec=self.use_trt_exec,
                     sparse_weights=False,
                     input_profile=obj.get_input_profile(
                         opt_batch_size, opt_image_height, opt_image_width,

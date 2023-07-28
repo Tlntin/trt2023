@@ -38,7 +38,7 @@ for i in range(20):
     new_img = hk.process(img,
             "a bird", 
             "best quality, extremely detailed", 
-            "longbody, lowres, bad anatomy, bad hands, missing fingers", 
+            "longbody, lowres, bad anatomy, bad hands, missing fingers",
             1, 
             256, 
             20,

@@ -696,7 +696,7 @@ class hackathon():
     
 
 if __name__ == "__main__":
-    hk = hackathon(do_compare=False, onnx_device="cuda") 
+    hk = hackathon(do_compare=True, onnx_device="cuda") 
     hk.initialize()
 
 

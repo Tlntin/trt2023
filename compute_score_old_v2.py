@@ -4,7 +4,7 @@ from pytorch_fid.inception import InceptionV3
 import cv2
 import os
 import datetime
-from canny2image_torch_v2 import hackathon
+from canny2image_torch_v2 import hackathon_pt
 try:
     from colored import fg, stylize
 except ImportError:
@@ -26,7 +26,7 @@ def PD(base_img, new_img):
 
 scores = []
 latencys = []
-hk = hackathon()
+hk = hackathon_pt()
 hk.initialize()
 score_list = []
 time_list = []

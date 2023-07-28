@@ -90,11 +90,11 @@ class TRT_DDIMSampler(object):
                 hint=control,
                 timestep=ddim_sampling_tensor[index],
                 context=batch_crossattn,
-                alphas=alphas[index],
-                alphas_prev=alphas_prev[index],
-                sqrt_one_minus_alphas=sqrt_one_minus_alphas[index],
-                noise=noise[index],
-                temp_di=temp_di[index],
+                alphas=alphas[index: index + 1],
+                alphas_prev=alphas_prev[index: index + 1],
+                sqrt_one_minus_alphas=sqrt_one_minus_alphas[index: index + 1],
+                noise=noise[index: index + 1],
+                temp_di=temp_di[index: index + 1],
                 uncond_scale=uncond_scale,
             )
             if self.do_summarize:

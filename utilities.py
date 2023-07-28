@@ -207,6 +207,9 @@ class Engine():
             self,
             onnx_path,
             fp16,
+            int8=False,
+            use_trt_exec=False,
+            calibrator=None,
             input_profile=None,
             enable_refit=False,
             enable_preview=False,
@@ -217,37 +220,69 @@ class Engine():
             sparse_weights=False
         ):
         print(f"Building TensorRT engine for {onnx_path}: {self.engine_path}")
-        p = Profile()
-        if input_profile:
-            for name, dims in input_profile.items():
-                assert len(dims) == 3
-                p.add(name, min=dims[0], opt=dims[1], max=dims[2])
+        if not use_trt_exec:
+            p = Profile()
+            if input_profile:
+                for name, dims in input_profile.items():
+                    assert len(dims) == 3
+                    p.add(name, min=dims[0], opt=dims[1], max=dims[2])
 
-        config_kwargs = {}
+            config_kwargs = {}
 
-        config_kwargs['preview_features'] = [trt.PreviewFeature.DISABLE_EXTERNAL_TACTIC_SOURCES_FOR_CORE_0805]
-        if enable_preview:
-            # Faster dynamic shapes made optional since it increases engine build time.
-            config_kwargs['preview_features'].append(trt.PreviewFeature.FASTER_DYNAMIC_SHAPES_0805)
-        if workspace_size > 0:
-            config_kwargs['memory_pool_limits'] = {trt.MemoryPoolType.WORKSPACE: workspace_size}
-        if not enable_all_tactics:
-            config_kwargs['tactic_sources'] = []
-        print("builder_optimization_level is ", builder_optimization_level)
-        engine = engine_from_network(
-            network_from_onnx_path(onnx_path, flags=[trt.OnnxParserFlag.NATIVE_INSTANCENORM]),
-            config=CreateConfig(
-                fp16=fp16,
-                refittable=enable_refit,
-                sparse_weights=sparse_weights,
-                profiles=[p],
-                load_timing_cache=timing_cache,
-                builder_optimization_level=builder_optimization_level,
-                **config_kwargs
-            ),
-            save_timing_cache=timing_cache
-        )
-        save_engine(engine, path=self.engine_path)
+            config_kwargs['preview_features'] = [trt.PreviewFeature.DISABLE_EXTERNAL_TACTIC_SOURCES_FOR_CORE_0805]
+            if enable_preview:
+                # Faster dynamic shapes made optional since it increases engine build time.
+                config_kwargs['preview_features'].append(trt.PreviewFeature.FASTER_DYNAMIC_SHAPES_0805)
+            if workspace_size > 0:
+                config_kwargs['memory_pool_limits'] = {trt.MemoryPoolType.WORKSPACE: workspace_size}
+            if not enable_all_tactics:
+                config_kwargs['tactic_sources'] = []
+            print("builder_optimization_level is ", builder_optimization_level)
+            engine = engine_from_network(
+                network_from_onnx_path(onnx_path, flags=[trt.OnnxParserFlag.NATIVE_INSTANCENORM]),
+                config=CreateConfig(
+                    fp16=fp16,
+                    int8=int8,
+                    calibrator=calibrator,
+                    refittable=enable_refit,
+                    sparse_weights=sparse_weights,
+                    profiles=[p],
+                    load_timing_cache=timing_cache,
+                    builder_optimization_level=builder_optimization_level,
+                    **config_kwargs
+                ),
+                save_timing_cache=timing_cache
+            )
+            save_engine(engine, path=self.engine_path)
+        else:
+            command = f"trtexec --onnx={onnx_path} --saveEngine={self.engine_path}"
+            if fp16:
+                command += " --fp16"
+            if builder_optimization_level:
+                command += f" --builderOptimizationLevel={builder_optimization_level}"
+            if input_profile:
+                min_shapes = []
+                opt_shapes = []
+                max_shapes = []
+                for name, dims in input_profile.items():
+                    assert len(dims) == 3
+                    dims_0 = [str(d) for d in dims[0]]
+                    dims_1 = [str(d) for d in dims[1]]
+                    dims_2 = [str(d) for d in dims[2]]
+                    min_shapes.append("{}:{}".format(name, "x".join(dims_0)))
+                    opt_shapes.append("{}:{}".format(name, "x".join(dims_1)))
+                    max_shapes.append("{}:{}".format(name, "x".join(dims_2)))
+                command += " --minShapes={}".format(",".join(min_shapes))
+                command += " --optShapes={}".format(",".join(opt_shapes))
+                command += " --maxShapes={}".format(",".join(max_shapes))
+            if sparse_weights:
+                command += " --sparsity=enable"
+            # execute comand in shell
+            print("=" * 20)
+            print("build engine with command")
+            print(command)
+            print("=" * 20)
+            os.system(command)
 
     def load(self):
         print(f"Loading TensorRT engine: {self.engine_path}")
