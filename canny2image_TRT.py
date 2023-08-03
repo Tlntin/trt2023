@@ -374,8 +374,8 @@ class hackathon():
         force_optimize=False,
         force_build=False,
         static_batch=False,
-        static_shape=True,
-        enable_preview=False,
+        static_shape=False,
+        enable_preview=True,
         enable_all_tactics=False,
         timing_cache=None,
     ):
@@ -482,6 +482,7 @@ class hackathon():
         print("=" * 20)
         for model_name in self.stages:
             obj = model_dict[model_name]
+            obj.model = obj.model.to("cpu")
             print(f"clear old {model_name} pytorch model")
             delattr(obj, "model")
             gc.collect()
@@ -519,7 +520,8 @@ class hackathon():
                     sparse_weights=False,
                     input_profile=obj.get_input_profile(
                         opt_batch_size, opt_image_height, opt_image_width,
-                        static_batch=static_batch, static_shape=static_shape
+                        static_batch=static_batch,
+                        static_shape=static_shape
                     ),
                     # enable_refit=enable_refit,
                     enable_refit=False,

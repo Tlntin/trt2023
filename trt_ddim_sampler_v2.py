@@ -8,6 +8,7 @@ class TRT_DDIMSampler(object):
     def __init__(
             self,
             device,
+            use_fp16: bool,
             engine: dict,
             events: dict,
             stream,
@@ -21,6 +22,7 @@ class TRT_DDIMSampler(object):
         ):
         super().__init__()
         self.device = device
+        self.use_fp16 = use_fp16
         self.scale_factor = scale_factor
         self.alphas_cumprod = alphas_cumprod
         self.engine = engine
@@ -55,13 +57,17 @@ class TRT_DDIMSampler(object):
             dtype=torch.int32,
             device=device
         )
-        ddim_sampling_tensor = ddim_timesteps.unsqueeze(1).repeat(1, 2 * batch_size)
+        dtype = torch.float32 if not self.use_fp16 else torch.float16
+        ddim_sampling_tensor = ddim_timesteps\
+            .unsqueeze(1)\
+            .repeat(1, 2 * batch_size)\
+            .to(dtype=dtype)
         # ddim sampling parameters
-        alphas = self.alphas_cumprod[ddim_timesteps]
+        alphas = self.alphas_cumprod[ddim_timesteps].to(dtype=dtype)
         alphas_prev = torch.cat(
             (self.alphas_cumprod[:1], self.alphas_cumprod[ddim_timesteps[:-1]]),
             0
-        )
+        ).to(dtype=dtype)
         sqrt_one_minus_alphas = torch.sqrt(1. - alphas)
         # according the the formula provided in https://arxiv.org/abs/2010.02502
         sigmas = eta * torch.sqrt(
@@ -74,8 +80,8 @@ class TRT_DDIMSampler(object):
         alphas_prev = alphas_prev.sqrt()
         # noise = sigmas_at * rand_noise
         # batch_size = shape[0]
-        img = torch.randn(shape, device=device)
-        rand_noise = torch.rand_like(img, device=device) * temperature
+        img = torch.randn(shape, device=device, dtype=dtype)
+        rand_noise = torch.rand_like(img, device=device, dtype=dtype) * temperature
         img = img.repeat(2 * batch_size, 1, 1, 1)
         # becasuse seed, rand is pin, use unsqueeze(0) to auto boradcast
         noise = sigmas.unsqueeze(1).unsqueeze(2).unsqueeze(3) * rand_noise

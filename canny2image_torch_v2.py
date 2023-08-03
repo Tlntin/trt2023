@@ -3,6 +3,7 @@ import config
 import numpy as np
 import torch
 import random
+# import tomesd
 
 from pytorch_lightning import seed_everything
 from annotator.util import resize_image, HWC3
@@ -31,6 +32,7 @@ class hackathon_pt():
             )
         )
         model = model.cuda()
+        # tomesd.apply_patch(model, ratio=0.5, use_rand=False)
         self.state_dict = {
             "clip": "cond_stage_model",
             "control_net": "control_model",

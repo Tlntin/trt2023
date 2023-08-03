@@ -15,7 +15,7 @@ import os
 import onnx
 import shutil
 from cuda import cudart
-from models import (get_embedding_dim, CLIP, UnionModelV2, VAE)
+from models import (get_embedding_dim, CLIP,ControlNet, UNet, UnionModelV2, VAE)
 from polygraphy import cuda
 import tensorrt as trt
 from utilities import Engine, TRT_LOGGER
@@ -28,13 +28,14 @@ from polygraphy.common import TensorMetadata
 from polygraphy.comparator import Comparator, CompareFunc, DataLoader
 
 now_dir = os.path.dirname(os.path.abspath(__file__))
+# import tomesd
 
 
 class hackathon():
     def __init__(
         self,
         version="1.5",
-        stages=["clip", "union_model_v2", "vae"],
+        stages=["clip", "unet", "control_net", "vae"],
         de_noising_steps=20,
         guidance_scale=9.0,
         onnx_device="cpu",
@@ -43,8 +44,9 @@ class hackathon():
         verbose=False,
         nvtx_profile=False,
         use_cuda_graph=True,
-        use_int8=False,
-        use_trt_exec=True,
+        use_int8=True,
+        use_fp16=False,
+        use_trt_exec=False,
         do_summarize = False,
         do_compare: bool = False,
         builder_optimization_level=5,
@@ -109,10 +111,20 @@ class hackathon():
                 "opt": 2,
                 "max": 2,
             },
-            "union_model_v2": {
-                "min": 1,
-                "opt": 1,
-                "max": 1,
+            # "union_model_v2": {
+            #     "min": 1,
+            #     "opt": 1,
+            #     "max": 1,
+            # },
+            "unet": {
+                "min": 2,
+                "opt": 2,
+                "max": 2,
+            },
+            "control_net": {
+                "min": 2,
+                "opt": 2,
+                "max": 2,
             },
             "vae": {
                 "min": 1,
@@ -121,6 +133,7 @@ class hackathon():
             }
         }
         self.use_int8 = use_int8
+        self.use_fp16 = use_fp16
         self.use_trt_exec = use_trt_exec
         self.calibre_dir = os.path.join(now_dir, "output", "calibre")
         if not os.path.exists(self.calibre_dir):
@@ -144,7 +157,7 @@ class hackathon():
         from tqdm import trange
         torch_hk = hackathon_pt()
         torch_hk.initialize()
-        for i in trange(20, desc="get int8 from pytorch v2"):
+        for i in trange(399, desc="get int8 from pytorch v2"):
             path = os.path.join(now_dir, "test_imgs", "bird_"+ str(i) + ".jpg")
             img = cv2.imread(path)
             # generate by ChatGPT4
@@ -186,24 +199,25 @@ class hackathon():
             ]
             assert len(prompt_list) == len(n_prompt_list)
             assert len(prompt_list) == len(seed_list)
-            for (prompt, n_prompt, seed) in zip(prompt_list, n_prompt_list, seed_list):
-                _ = torch_hk.process(
-                    img,
-                    "a bird", 
-                    prompt,
-                    n_prompt,
-                    1, 
-                    256, 
-                    20,
-                    False, 
-                    1,
-                    9, 
-                    seed,
-                    0.0, 
-                    100, 
-                    200,
-                    save_sample=True,
-                )
+            # for (prompt, n_prompt, seed) in zip(prompt_list, n_prompt_list, seed_list):
+            _ = torch_hk.process(
+                img,
+                "a bird", 
+                "best quality, extremely detailed", 
+                "longbody, lowres, bad anatomy, bad hands, missing fingers", 
+                1, 
+                256, 
+                20,
+                False, 
+                1,
+                9, 
+                2946901,
+                0.0, 
+                100, 
+                200,
+                save_sample=True,
+            )
+
     def initialize(self):
         self.apply_canny = CannyDetector()
         model = create_model('./models/cldm_v15.yaml').cpu()
@@ -214,6 +228,7 @@ class hackathon():
             )
         )
         model = model.to(self.onnx_device)
+        # tomesd.apply_patch(model, ratio=0.5, use_rand=False, onnx_friendly=False)
         model_dict = {}
         for k, v in self.state_dict.items():
             if k != "unet":
@@ -236,6 +251,30 @@ class hackathon():
                 )
                 delattr(model, v)
                 model_dict[k] = new_model
+            elif k == "control_net":
+                new_model = ControlNet(
+                    model=temp_model,
+                    device=self.onnx_device,
+                    fp16=self.use_fp16,
+                    verbose=self.verbose,
+                    min_batch_size=min_batch_size,
+                    max_batch_size=max_batch_size,
+                    embedding_dim=self.embedding_dim
+                )
+                delattr(model, v)
+                model_dict[k] = new_model
+            elif k == "unet":
+                new_model = UNet(
+                    model=temp_model,
+                    device=self.onnx_device,
+                    fp16=self.use_fp16,
+                    verbose=self.verbose,
+                    min_batch_size=min_batch_size,
+                    max_batch_size=max_batch_size,
+                    embedding_dim=self.embedding_dim
+                )
+                delattr(model.model, v)
+                model_dict[k] = new_model
             elif k == "vae":
                 new_model = VAE(
                     model=temp_model,
@@ -248,28 +287,31 @@ class hackathon():
                 delattr(model, v)
                 model_dict[k] = new_model
             else:
-                pass
+                raise ValueError(f"Unknown model type: {k}")
+
         # merge control_net and unet
-        control_net_model = getattr(model, self.state_dict["control_net"])
-        unet_model = getattr(model.model, self.state_dict["unet"])
-        min_batch_size = self.stage_batch_dict["union_model_v2"]["min"]
-        max_batch_size = self.stage_batch_dict["union_model_v2"]["max"]
-        model_dict["union_model_v2"] = UnionModelV2(
-            control_model=control_net_model,
-            unet_model=unet_model,
-            device=self.device,
-            verbose=self.verbose,
-            min_batch_size=min_batch_size,
-            max_batch_size=max_batch_size,
-            embedding_dim=self.embedding_dim
-        )
-        delattr(model, self.state_dict["control_net"])
-        delattr(model.model, self.state_dict["unet"])
+        # control_net_model = getattr(model, self.state_dict["control_net"])
+        # unet_model = getattr(model.model, self.state_dict["unet"])
+        # min_batch_size = self.stage_batch_dict["union_model_v2"]["min"]
+        # max_batch_size = self.stage_batch_dict["union_model_v2"]["max"]
+        # model_dict["union_model_v2"] = UnionModelV2(
+        #     control_model=control_net_model,
+        #     unet_model=unet_model,
+        #     fp16=self.use_fp16,
+        #     device=self.device,
+        #     verbose=self.verbose,
+        #     min_batch_size=min_batch_size,
+        #     max_batch_size=max_batch_size,
+        #     embedding_dim=self.embedding_dim
+        # )
+        # delattr(model, self.state_dict["control_net"])
+        # delattr(model.model, self.state_dict["unet"])
         # copy some params from model to ddim_sampler
         num_timesteps = model.num_timesteps
         scale_factor = model.scale_factor
         alphas_cumprod = model.alphas_cumprod.to(self.device)
         # clear model
+        model = model.to("cpu")
         del model
         gc.collect()
         torch.cuda.empty_cache()
@@ -291,7 +333,7 @@ class hackathon():
             model_dict=model_dict,
             engine_dir=engine_dir,
             onnx_dir=onnx_dir,
-            onnx_opset=17,
+            onnx_opset=18,
             opt_image_height=image_height,
             opt_image_width=image_width,
         )
@@ -308,6 +350,7 @@ class hackathon():
             torch.cuda.empty_cache()
         self.ddim_sampler = TRT_DDIMSampler(
             device=self.device,
+            use_fp16=self.use_fp16,
             engine=self.engine,
             events=self.events,
             stream=self.stream,
@@ -554,6 +597,7 @@ class hackathon():
         print("=" * 20)
         for model_name in self.stages:
             obj = model_dict[model_name]
+            obj.model = obj.model.to("cpu")
             print(f"clear old {model_name} pytorch model")
             delattr(obj, "model")
             gc.collect()
@@ -584,10 +628,11 @@ class hackathon():
                 #     use_sparse_weights=True
                 # else:
                 #     use_sparse_weights=False
-                if self.use_int8 and model_name == "union_model_v2":
+                if self.use_int8 and model_name in [
+                    "union_model_v2", "control_net" ,"unet"]:
                     use_int8 = True
                     n = len(os.listdir(self.calibre_dir))
-                    if n < 400:
+                    if n < 2:
                         self.calcuate_data_with_pytroch()
                     else:
                         print(f"found {n} calibre data")
@@ -609,6 +654,7 @@ class hackathon():
                 else:
                     use_int8 = False
                     calibrator = None
+                print("use int8 ?", use_int8)
                 engine.build(
                     onnx_opt_path,
                     fp16=True,
@@ -689,8 +735,18 @@ class hackathon():
         )
 
         input_metadata=TensorMetadata()
+        if model_name == "union_model_v2":
+            dtype = np.float32 if not self.use_fp16 else np.float16
+        else:
+            dtype = np.float32
         for key in input_profile.keys():
-            input_metadata.add(key, dtype=np.float32, shape = input_profile[key][0], min_shape=None, max_shape=None)
+            input_metadata.add(
+                key,
+                dtype=dtype,
+                shape=input_profile[key][0],
+                min_shape=None,
+                max_shape=None
+            )
 
         data_loader = DataLoader(input_metadata=input_metadata)
 
@@ -760,8 +816,9 @@ class hackathon():
 
             detected_map = self.apply_canny(img, low_threshold, high_threshold)
             detected_map = HWC3(detected_map)
-
-            control = torch.from_numpy(detected_map.copy()).float().cuda() / 255.0
+            dtype = torch.float32 if not self.use_fp16 else torch.float16
+            control = torch.from_numpy(detected_map.copy()).to(
+                device=self.device, dtype=dtype) / 255.0
             # control = torch.stack([control for _ in range(num_samples)], dim=0)
             # control = einops.rearrange(control, 'b h w c -> b c h w').clone()
 
@@ -773,19 +830,22 @@ class hackathon():
             text_list = [prompt + ', ' + a_prompt] * num_samples + \
                 [n_prompt] * num_samples
             # control = torch.cat((control, control), 0)
-            batch_crossattn = self.text_embedding(text_list)
+            batch_crossattn = self.text_embedding(text_list).to(dtype=dtype)
             if self.do_summarize:
                 cudart.cudaEventRecord(self.events['clip-stop'], 0)
             # shape = (num_samples, 4, H // 8, W // 8)
+
             samples = self.ddim_sampler.sample(
                 control=control,
                 batch_crossattn=batch_crossattn,
                 uncond_scale=torch.tensor(
-                    [scale], dtype=torch.float32, device=self.device
+                    [scale], dtype=dtype, device=self.device
                 ),
                 ddim_num_steps=ddim_steps,
                 eta=eta
             )
+            if self.use_fp16:
+                samples = samples.float()
             if self.do_summarize:
                 cudart.cudaEventRecord(self.events['vae-start'], 0)
             x_samples = self.ddim_sampler.decode_first_stage(samples)

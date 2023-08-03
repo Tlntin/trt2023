@@ -91,7 +91,7 @@ class BaseModel():
         self.min_batch = min_batch_size
         self.max_batch = max_batch_size
         self.min_image_shape = 256   # min image resolution: 256x256
-        self.max_image_shape = 1024  # max image resolution: 1024x1024
+        self.max_image_shape = 512  # max image resolution: 512x512
         self.min_latent_shape = self.min_image_shape // 8
         self.max_latent_shape = self.max_image_shape // 8
 
@@ -269,7 +269,7 @@ class ControlNet(BaseModel):
     def get_model(self):
         # model_opts = {'revision': 'fp16', 'torch_dtype': torch.float16} if self.fp16 else {}
         if self.fp16:
-            self.model = self.model.half()
+            self.model = self.model.to(dtype=torch.float16, revision="fp16")
         return self.model
 
     def get_input_names(self):
@@ -402,7 +402,7 @@ class ControlNet(BaseModel):
                 device=self.device
             ),
             # "timestep": ['B'],
-            torch.tensor([1.], dtype=torch.int32, device=self.device),
+            torch.tensor([951.] * batch_size, dtype=dtype, device=self.device),
             # "context": ['B', 'T', 'E']
             torch.randn(
                 batch_size,
@@ -442,7 +442,7 @@ class UNet(BaseModel):
     def get_model(self):
         # model_opts = {'revision': 'fp16', 'torch_dtype': torch.float16} if self.fp16 else {}
         if self.fp16:
-            self.model = self.model.half()
+            self.model = self.model.to(dtype=torch.float16, revision='fp16')
         return self.model
 
     def get_input_names(self):
@@ -612,7 +612,7 @@ class UNet(BaseModel):
                 device=self.device
             ),
             # "timestep": ['B'],
-            torch.tensor([951] * batch_size, dtype=torch.int32, device=self.device),
+            torch.tensor([951] * batch_size, dtype=dtype, device=self.device),
             # "context": ['B', 'T', 'E']
             torch.randn(
                 batch_size,
@@ -953,25 +953,55 @@ class UnionBlockPT(torch.nn.Module):
         uncond_scale: torch.Tensor,
         save_sample = False
     ):
+
+        # if save_sample:
+        #     index = len(os.listdir(self.carlibre_dir))
+        #     input_path = os.path.join(self.carlibre_dir, f"{index}.npz")
+        #     input_dict = {
+        #         "sample": x.detach().cpu().data.numpy(),
+        #         "hint": hint.detach().cpu().data.numpy(),
+        #         "timestep": t.detach().cpu().data.numpy(),
+        #         "context": context.detach().cpu().data.numpy(),
+        #         "alphas": alphas.detach().cpu().data.numpy(),
+        #         "alphas_prev": alphas_prev.detach().cpu().data.numpy(),
+        #         "sqrt_one_minus_alphas": sqrt_one_minus_alphas.detach().cpu().data.numpy(),
+        #         "noise": noise.detach().cpu().data.numpy(),
+        #         "temp_di": temp_di.detach().cpu().data.numpy(),
+        #         "uncond_scale": uncond_scale.detach().cpu().data.numpy(),
+        #     }
+        #     np.savez(input_path, **input_dict)
+        # sample for control model
         if save_sample:
-            index = len(os.listdir(self.carlibre_dir))
-            input_path = os.path.join(self.carlibre_dir, f"{index}.npz")
+            control_dir = os.path.join(self.carlibre_dir, "control")
+            if not os.path.exists(control_dir):
+                os.mkdir(control_dir)
+            index = len(os.listdir(control_dir))
+            input_path = os.path.join(control_dir, f"{index}.npz")
             input_dict = {
                 "sample": x.detach().cpu().data.numpy(),
                 "hint": hint.detach().cpu().data.numpy(),
                 "timestep": t.detach().cpu().data.numpy(),
                 "context": context.detach().cpu().data.numpy(),
-                "alphas": alphas.detach().cpu().data.numpy(),
-                "alphas_prev": alphas_prev.detach().cpu().data.numpy(),
-                "sqrt_one_minus_alphas": sqrt_one_minus_alphas.detach().cpu().data.numpy(),
-                "noise": noise.detach().cpu().data.numpy(),
-                "temp_di": temp_di.detach().cpu().data.numpy(),
-                "uncond_scale": uncond_scale.detach().cpu().data.numpy(),
             }
             np.savez(input_path, **input_dict)
         b = x.shape[0] // 2
         # do like this like self.apply_model
         control = self.control_model(x, hint, t, context)
+        # sample for unet model
+        if save_sample:
+            unet_dir = os.path.join(self.carlibre_dir, "unet")
+            if not os.path.exists(unet_dir):
+                os.mkdir(unet_dir)
+            index = len(os.listdir(unet_dir))
+            input_path = os.path.join(unet_dir, f"{index}.npz")
+            input_dict = {
+                "sample": x.detach().cpu().data.numpy(),
+                "timestep": t.detach().cpu().data.numpy(),
+                "context": context.detach().cpu().data.numpy(),
+            }
+            for i, c in enumerate(control):
+                input_dict[f"control_{i}"] = c.detach().cpu().data.numpy()
+            np.savez(input_path, **input_dict)
         b_latent = self.unet_model(x, t, context, control)
         e_t = b_latent[b:] + uncond_scale * (b_latent[:b] - b_latent[b:])
         pred_x0 = (x - sqrt_one_minus_alphas * e_t) / alphas
@@ -1011,7 +1041,11 @@ class UnionModelV2(BaseModel):
     def get_model(self):
         # model_opts = {'revision': 'fp16', 'torch_dtype': torch.float16} if self.fp16 else {}
         if self.fp16:
-            self.model = self.model.to(device=self.device, dtype=torch.float16)
+            self.model = self.model.to(
+                device=self.device,
+                dtype=torch.float16,
+                revision=torch.float16
+            )
         return self.model
 
     def get_input_names(self):
@@ -1149,7 +1183,7 @@ class UnionModelV2(BaseModel):
                 device=self.device
             ),
             # "timestep": ["2B"],
-            torch.tensor([951, 951], dtype=torch.int32, device=self.device),
+            torch.tensor([951, 951], dtype=dtype, device=self.device),
             # "context": ['2B', 'T', 'E']
             torch.randn(
                 batch_size * 2,
@@ -1293,7 +1327,7 @@ class SamplerModel(torch.nn.Module):
             dtype=torch.int32,
             device=device
         )
-        ddim_sampling_tensor = ddim_timesteps.unsqueeze(1).repeat(1, 2 * batch_size)
+        ddim_sampling_tensor = ddim_timesteps.unsqueeze(1).repeat(1, 2 * batch_size).float()
         # ddim sampling parameters
         alphas = self.alphas_cumprod[ddim_timesteps]
         alphas_prev = torch.cat(
