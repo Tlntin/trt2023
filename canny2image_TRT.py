@@ -677,7 +677,7 @@ class hackathon():
             samples = self.ddim_sampler.sample(
                 control=control,
                 batch_crossattn=batch_crossattn,
-                ddim_num_steps=8,
+                ddim_num_steps=12,
                 eta=eta,
                 uncond_scale=scale,
                 batch_size=num_samples,
