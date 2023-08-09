@@ -20,6 +20,7 @@ from polygraphy import cuda
 import tensorrt as trt
 from utilities import Engine, TRT_LOGGER
 from trt_ddim_sampler_v2 import TRT_DDIMSampler
+from tqdm import tqdm
 #-----------add for compare func -----------
 from polygraphy.backend.common import BytesFromPath
 from polygraphy.backend.onnxrt import OnnxrtRunner, SessionFromOnnx
@@ -35,7 +36,8 @@ class hackathon():
     def __init__(
         self,
         version="1.5",
-        stages=["clip", "unet", "control_net", "vae"],
+        # stages=["clip", "unet", "control_net", "vae"],
+        stages=["clip", "union_model_v2", "vae"],
         de_noising_steps=20,
         guidance_scale=9.0,
         onnx_device="cpu",
@@ -111,21 +113,21 @@ class hackathon():
                 "opt": 2,
                 "max": 2,
             },
-            # "union_model_v2": {
-            #     "min": 1,
-            #     "opt": 1,
-            #     "max": 1,
+            "union_model_v2": {
+                "min": 1,
+                "opt": 1,
+                "max": 1,
+            },
+            # "unet": {
+            #     "min": 2,
+            #     "opt": 2,
+            #     "max": 2,
             # },
-            "unet": {
-                "min": 2,
-                "opt": 2,
-                "max": 2,
-            },
-            "control_net": {
-                "min": 2,
-                "opt": 2,
-                "max": 2,
-            },
+            # "control_net": {
+            #     "min": 2,
+            #     "opt": 2,
+            #     "max": 2,
+            # },
             "vae": {
                 "min": 1,
                 "opt": 1,
@@ -199,24 +201,27 @@ class hackathon():
             ]
             assert len(prompt_list) == len(n_prompt_list)
             assert len(prompt_list) == len(seed_list)
-            # for (prompt, n_prompt, seed) in zip(prompt_list, n_prompt_list, seed_list):
-            _ = torch_hk.process(
-                img,
-                "a bird", 
-                "best quality, extremely detailed", 
-                "longbody, lowres, bad anatomy, bad hands, missing fingers", 
-                1, 
-                256, 
-                20,
-                False, 
-                1,
-                9, 
-                2946901,
-                0.0, 
-                100, 
-                200,
-                save_sample=True,
-            )
+            for (prompt, n_prompt, seed) in zip(prompt_list, n_prompt_list, seed_list):
+                new_image = torch_hk.process(
+                    img,
+                    "a bird", 
+                    prompt, # "best quality, extremely detailed", 
+                    n_prompt, # "longbody, lowres, bad anatomy, bad hands, missing fingers", 
+                    1, 
+                    256, 
+                    20,
+                    False, 
+                    1,
+                    9, 
+                    seed, # 2946901,
+                    0.0, 
+                    100, 
+                    200,
+                    save_sample=True,
+                )
+                # new_path = os.path.join(now_dir, "output", f"calibre_bird_{i}.jpg")
+                # cv2.imwrite(new_path, new_img[0])
+
 
     def initialize(self):
         self.apply_canny = CannyDetector()
@@ -251,30 +256,30 @@ class hackathon():
                 )
                 delattr(model, v)
                 model_dict[k] = new_model
-            elif k == "control_net":
-                new_model = ControlNet(
-                    model=temp_model,
-                    device=self.onnx_device,
-                    fp16=self.use_fp16,
-                    verbose=self.verbose,
-                    min_batch_size=min_batch_size,
-                    max_batch_size=max_batch_size,
-                    embedding_dim=self.embedding_dim
-                )
-                delattr(model, v)
-                model_dict[k] = new_model
-            elif k == "unet":
-                new_model = UNet(
-                    model=temp_model,
-                    device=self.onnx_device,
-                    fp16=self.use_fp16,
-                    verbose=self.verbose,
-                    min_batch_size=min_batch_size,
-                    max_batch_size=max_batch_size,
-                    embedding_dim=self.embedding_dim
-                )
-                delattr(model.model, v)
-                model_dict[k] = new_model
+            # elif k == "control_net":
+            #     new_model = ControlNet(
+            #         model=temp_model,
+            #         device=self.onnx_device,
+            #         fp16=self.use_fp16,
+            #         verbose=self.verbose,
+            #         min_batch_size=min_batch_size,
+            #         max_batch_size=max_batch_size,
+            #         embedding_dim=self.embedding_dim
+            #     )
+            #     delattr(model, v)
+            #     model_dict[k] = new_model
+            # elif k == "unet":
+            #     new_model = UNet(
+            #         model=temp_model,
+            #         device=self.onnx_device,
+            #         fp16=self.use_fp16,
+            #         verbose=self.verbose,
+            #         min_batch_size=min_batch_size,
+            #         max_batch_size=max_batch_size,
+            #         embedding_dim=self.embedding_dim
+            #     )
+            #     delattr(model.model, v)
+            #     model_dict[k] = new_model
             elif k == "vae":
                 new_model = VAE(
                     model=temp_model,
@@ -286,26 +291,26 @@ class hackathon():
                 )
                 delattr(model, v)
                 model_dict[k] = new_model
-            else:
-                raise ValueError(f"Unknown model type: {k}")
+            # else:
+            #     raise ValueError(f"Unknown model type: {k}")
 
         # merge control_net and unet
-        # control_net_model = getattr(model, self.state_dict["control_net"])
-        # unet_model = getattr(model.model, self.state_dict["unet"])
-        # min_batch_size = self.stage_batch_dict["union_model_v2"]["min"]
-        # max_batch_size = self.stage_batch_dict["union_model_v2"]["max"]
-        # model_dict["union_model_v2"] = UnionModelV2(
-        #     control_model=control_net_model,
-        #     unet_model=unet_model,
-        #     fp16=self.use_fp16,
-        #     device=self.device,
-        #     verbose=self.verbose,
-        #     min_batch_size=min_batch_size,
-        #     max_batch_size=max_batch_size,
-        #     embedding_dim=self.embedding_dim
-        # )
-        # delattr(model, self.state_dict["control_net"])
-        # delattr(model.model, self.state_dict["unet"])
+        control_net_model = getattr(model, self.state_dict["control_net"])
+        unet_model = getattr(model.model, self.state_dict["unet"])
+        min_batch_size = self.stage_batch_dict["union_model_v2"]["min"]
+        max_batch_size = self.stage_batch_dict["union_model_v2"]["max"]
+        model_dict["union_model_v2"] = UnionModelV2(
+            control_model=control_net_model,
+            unet_model=unet_model,
+            fp16=self.use_fp16,
+            device=self.onnx_device,
+            verbose=self.verbose,
+            min_batch_size=min_batch_size,
+            max_batch_size=max_batch_size,
+            embedding_dim=self.embedding_dim
+        )
+        delattr(model, self.state_dict["control_net"])
+        delattr(model.model, self.state_dict["unet"])
         # copy some params from model to ddim_sampler
         num_timesteps = model.num_timesteps
         scale_factor = model.scale_factor
@@ -547,7 +552,8 @@ class hackathon():
                         print(f"Exporting model: {onnx_path}")
                         model = obj.get_model()
                         opt_batch_size = self.stage_batch_dict[model_name]["opt"]
-                        with torch.inference_mode(), torch.autocast("cuda"):
+                        # with torch.inference_mode(), torch.autocast("cuda"):
+                        with torch.no_grad():
                             inputs = obj.get_sample_input(
                                 opt_batch_size,
                                 opt_image_height,
@@ -631,18 +637,27 @@ class hackathon():
                 if self.use_int8 and model_name in [
                     "union_model_v2", "control_net" ,"unet"]:
                     use_int8 = True
-                    n = len(os.listdir(self.calibre_dir))
-                    if n < 2:
+                    onnx_opt_path = onnx_path
+                    file_list = os.listdir(self.calibre_dir)
+                    file_list = [file for file in file_list if file.endswith(".npz")]
+                    if len(file_list) < 20:
                         self.calcuate_data_with_pytroch()
                     else:
-                        print(f"found {n} calibre data")
+                        print(f"found {len(file_list)} calibre data")
                     def calib_data():
                         file_list = os.listdir(self.calibre_dir)
+                        file_list = [file for file in file_list if file.endswith(".npz")]
                         file_list.sort(key=lambda x: int(x.split(".")[0]))
-                        for file in file_list:
+                        for file in tqdm(file_list, desc="calib data"):
                             file_path = os.path.join(self.calibre_dir, file)
-                            data = np.load(file_path)
-                            yield data
+                            raw_data = np.load(file_path)
+                            data = {key: raw_data[key] for key in raw_data.files}
+                            keys = list(data.keys())
+                            for v in data.values():
+                                assert len(v) == self.de_noising_steps, \
+                                    print(f"v length is {len(v)}")
+                            for i in range(self.de_noising_steps):
+                                yield {key: data[key][i] for key in keys}
                     calibrator = Calibrator(
                         data_loader=calib_data(),
                         cache=os.path.join(
@@ -841,7 +856,7 @@ class hackathon():
                 uncond_scale=torch.tensor(
                     [scale], dtype=dtype, device=self.device
                 ),
-                ddim_num_steps=ddim_steps,
+                ddim_num_steps=12,
                 eta=eta
             )
             if self.use_fp16:
@@ -862,7 +877,7 @@ class hackathon():
     
 
 if __name__ == "__main__":
-    hk = hackathon(do_compare=True, onnx_device="cuda", use_cuda_graph=True) 
+    hk = hackathon(do_compare=True, onnx_device="cpu", use_cuda_graph=True) 
     hk.initialize()
 
 
