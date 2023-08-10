@@ -56,7 +56,7 @@ docker run --gpus all \
 # 运行docker容器
 docker run --gpus all \
   --name trt2023 \
-  -it \
+  -d \
   -p 16785:22 \
   -u root \
   --ipc=host \
@@ -65,6 +65,9 @@ docker run --gpus all \
   --ulimit stack=67108864 \
   -v ${PWD}:/home/player/ControlNet/ \
   registry.cn-hangzhou.aliyuncs.com/trt-hackathon/trt-hackathon:v2 sleep 8640000
+
+# 进入容器
+docker exec -it trt2023 /bin/bash
 
 # 安装openssh
 apt install openssh-server
