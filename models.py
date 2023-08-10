@@ -976,10 +976,11 @@ class UnionBlockPT(torch.nn.Module):
                     key: np.concatenate([self.union_cache[key], value], axis=0)
                     for key, value in input_dict_1.items()
                 }
-                file_list = os.listdir(self.carlibre_dir)
+                union_model_v2_dir = os.path.join(self.carlibre_dir, "union_model_v2")
+                file_list = os.listdir(union_model_v2_dir)
                 file_list = [file for file in file_list if file.endswith(".npz")]
                 f_index = len(file_list)
-                input_path = os.path.join(self.carlibre_dir, f"{f_index}.npz")
+                input_path = os.path.join(union_model_v2_dir, f"{f_index}.npz")
                 np.savez(input_path, **self.union_cache)
                 self.union_cache = {}
             else:

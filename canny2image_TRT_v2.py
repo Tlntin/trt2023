@@ -36,7 +36,7 @@ class hackathon():
     def __init__(
         self,
         version="1.5",
-        # stages=["clip", "unet", "control_net", "vae"],
+        # stages=["clip", "control_net", "unet", "vae"],
         stages=["clip", "union_model_v2", "vae"],
         de_noising_steps=20,
         guidance_scale=9.0,
@@ -221,6 +221,7 @@ class hackathon():
                 )
                 # new_path = os.path.join(now_dir, "output", f"calibre_bird_{i}.jpg")
                 # cv2.imwrite(new_path, new_img[0])
+                # break
 
 
     def initialize(self):
@@ -638,18 +639,19 @@ class hackathon():
                     "union_model_v2", "control_net" ,"unet"]:
                     use_int8 = True
                     onnx_opt_path = onnx_path
-                    file_list = os.listdir(self.calibre_dir)
+                    data_dir = os.path.join(self.calibre_dir, model_name)
+                    file_list = os.listdir(data_dir)
                     file_list = [file for file in file_list if file.endswith(".npz")]
                     if len(file_list) < 20:
                         self.calcuate_data_with_pytroch()
                     else:
                         print(f"found {len(file_list)} calibre data")
-                    def calib_data():
-                        file_list = os.listdir(self.calibre_dir)
+                    def calib_data(data_dir=data_dir):
+                        file_list = os.listdir(data_dir)
                         file_list = [file for file in file_list if file.endswith(".npz")]
                         file_list.sort(key=lambda x: int(x.split(".")[0]))
                         for file in tqdm(file_list, desc="calib data"):
-                            file_path = os.path.join(self.calibre_dir, file)
+                            file_path = os.path.join(data_dir, file)
                             raw_data = np.load(file_path)
                             data = {key: raw_data[key] for key in raw_data.files}
                             keys = list(data.keys())
@@ -663,7 +665,7 @@ class hackathon():
                         cache=os.path.join(
                             now_dir,
                             "output",
-                            "identity-calib.cache"
+                            f"identity-calib-{model_name}.cache"
                         )
                     ) 
                 else:
