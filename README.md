@@ -72,13 +72,18 @@ apt install openssh-server
 # 启动openssh
 service ssh start
 
-# 创建密钥目录
-mkdir ~/.ssh
+# 给player用户设置密码，方便后续ssh远程
+passwd player
+# New password: 
+# Retype new password: 
 
-# 将服务器上面的已授权ssh文件拷贝进docker，这样能连服务器的主机，自然能连docker的主机
-docker cp ~/.ssh/authorized_keys  trt2023:/root/.ssh/
 
-# 修改配置文件
+# 将player用户加入到sudo组
+apt install sudo
+usermod -a -G sudo player
+
+
+# 修改配置文件, 使得可以直接秘钥访问ssh(可选)
 vim /etc/ssh/sshd_config
 
 将
@@ -95,17 +100,28 @@ AuthorizedKeysFile .ssh/authorized_keys
 
 # 这样其他主机就可以通过ssh服务连上docker进行开发了。
 
-# 也可以选择设置容器里面的root秘密来连接ssh
-passwd
+# 切换palyer用户
+su player
 
-# 观察容器启动文件
+
+# 试试sudo是否ok
+sudo apt update
+
+# 创建密钥目录(可选)
+mkdir ~/.ssh
+
+# 回到宿主机，将服务器上面的已授权ssh文件拷贝进docker，这样能连服务器的主机，自然能连docker的主机(可选)
+docker cp ~/.ssh/authorized_keys  trt2023:/home/player/.ssh/
+
+
+# 回到宿主机，观察容器启动文件
 docker inspect trt2023 | sed ":a;N;s/\n//g;ta" | grep -Poz "Entrypoint.*?]"
 
 # 输出结果
 Entrypoint": [ "/opt/nvidia/nvidia_entrypoint.sh"  ]
 
-# 设置docker容器启动时，自动打开ssh服务
-echo "service ssh start" >> /opt/nvidia/nvidia_entrypoint.sh 
+# 回到dokcer容器，设置docker容器启动时，自动打开ssh服务
+echo "service ssh start" >> /opt/nvidia/nvidia_entrypoint.sh
 
 
 # 在Vscode中进行远程开发
