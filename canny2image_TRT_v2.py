@@ -118,16 +118,16 @@ class hackathon():
                 "opt": 1,
                 "max": 1,
             },
-            # "unet": {
-            #     "min": 2,
-            #     "opt": 2,
-            #     "max": 2,
-            # },
-            # "control_net": {
-            #     "min": 2,
-            #     "opt": 2,
-            #     "max": 2,
-            # },
+            "unet": {
+                "min": 2,
+                "opt": 2,
+                "max": 2,
+            },
+            "control_net": {
+                "min": 2,
+                "opt": 2,
+                "max": 2,
+            },
             "vae": {
                 "min": 1,
                 "opt": 1,
@@ -153,13 +153,13 @@ class hackathon():
         self.embedding_dim = get_embedding_dim(self.version)
 
     @staticmethod
-    def calcuate_data_with_pytroch():
+    def calcuate_data_with_pytroch(model_name: str):
         # use cannny2image_torch_v2 to save input/output data for numpy
         from canny2image_torch_v2 import hackathon_pt
         from tqdm import trange
         torch_hk = hackathon_pt()
         torch_hk.initialize()
-        for i in trange(399, desc="get int8 from pytorch v2"):
+        for i in trange(20, desc="get int8 from pytorch v2"):
             path = os.path.join(now_dir, "test_imgs", "bird_"+ str(i) + ".jpg")
             img = cv2.imread(path)
             # generate by ChatGPT4
@@ -218,10 +218,11 @@ class hackathon():
                     100, 
                     200,
                     save_sample=True,
+                    model_name=model_name,
                 )
                 # new_path = os.path.join(now_dir, "output", f"calibre_bird_{i}.jpg")
                 # cv2.imwrite(new_path, new_img[0])
-                # break
+                break
 
 
     def initialize(self):
@@ -236,7 +237,10 @@ class hackathon():
         model = model.to(self.onnx_device)
         # tomesd.apply_patch(model, ratio=0.5, use_rand=False, onnx_friendly=False)
         model_dict = {}
-        for k, v in self.state_dict.items():
+        for k in self.stages:
+            v = self.state_dict.get(k) 
+            if v is None:
+                continue
             if k != "unet":
                 temp_model = getattr(model, v)
             else:
@@ -257,30 +261,30 @@ class hackathon():
                 )
                 delattr(model, v)
                 model_dict[k] = new_model
-            # elif k == "control_net":
-            #     new_model = ControlNet(
-            #         model=temp_model,
-            #         device=self.onnx_device,
-            #         fp16=self.use_fp16,
-            #         verbose=self.verbose,
-            #         min_batch_size=min_batch_size,
-            #         max_batch_size=max_batch_size,
-            #         embedding_dim=self.embedding_dim
-            #     )
-            #     delattr(model, v)
-            #     model_dict[k] = new_model
-            # elif k == "unet":
-            #     new_model = UNet(
-            #         model=temp_model,
-            #         device=self.onnx_device,
-            #         fp16=self.use_fp16,
-            #         verbose=self.verbose,
-            #         min_batch_size=min_batch_size,
-            #         max_batch_size=max_batch_size,
-            #         embedding_dim=self.embedding_dim
-            #     )
-            #     delattr(model.model, v)
-            #     model_dict[k] = new_model
+            elif k == "control_net":
+                new_model = ControlNet(
+                    model=temp_model,
+                    device=self.onnx_device,
+                    fp16=self.use_fp16,
+                    verbose=self.verbose,
+                    min_batch_size=min_batch_size,
+                    max_batch_size=max_batch_size,
+                    embedding_dim=self.embedding_dim
+                )
+                delattr(model, v)
+                model_dict[k] = new_model
+            elif k == "unet":
+                new_model = UNet(
+                    model=temp_model,
+                    device=self.onnx_device,
+                    fp16=self.use_fp16,
+                    verbose=self.verbose,
+                    min_batch_size=min_batch_size,
+                    max_batch_size=max_batch_size,
+                    embedding_dim=self.embedding_dim
+                )
+                delattr(model.model, v)
+                model_dict[k] = new_model
             elif k == "vae":
                 new_model = VAE(
                     model=temp_model,
@@ -296,22 +300,23 @@ class hackathon():
             #     raise ValueError(f"Unknown model type: {k}")
 
         # merge control_net and unet
-        control_net_model = getattr(model, self.state_dict["control_net"])
-        unet_model = getattr(model.model, self.state_dict["unet"])
-        min_batch_size = self.stage_batch_dict["union_model_v2"]["min"]
-        max_batch_size = self.stage_batch_dict["union_model_v2"]["max"]
-        model_dict["union_model_v2"] = UnionModelV2(
-            control_model=control_net_model,
-            unet_model=unet_model,
-            fp16=self.use_fp16,
-            device=self.onnx_device,
-            verbose=self.verbose,
-            min_batch_size=min_batch_size,
-            max_batch_size=max_batch_size,
-            embedding_dim=self.embedding_dim
-        )
-        delattr(model, self.state_dict["control_net"])
-        delattr(model.model, self.state_dict["unet"])
+        if "union_model_v2" in self.stages:
+            control_net_model = getattr(model, self.state_dict["control_net"])
+            unet_model = getattr(model.model, self.state_dict["unet"])
+            min_batch_size = self.stage_batch_dict["union_model_v2"]["min"]
+            max_batch_size = self.stage_batch_dict["union_model_v2"]["max"]
+            model_dict["union_model_v2"] = UnionModelV2(
+                control_model=control_net_model,
+                unet_model=unet_model,
+                fp16=self.use_fp16,
+                device=self.onnx_device,
+                verbose=self.verbose,
+                min_batch_size=min_batch_size,
+                max_batch_size=max_batch_size,
+                embedding_dim=self.embedding_dim
+            )
+            delattr(model, self.state_dict["control_net"])
+            delattr(model.model, self.state_dict["unet"])
         # copy some params from model to ddim_sampler
         num_timesteps = model.num_timesteps
         scale_factor = model.scale_factor
@@ -339,7 +344,7 @@ class hackathon():
             model_dict=model_dict,
             engine_dir=engine_dir,
             onnx_dir=onnx_dir,
-            onnx_opset=18,
+            onnx_opset=17,
             opt_image_height=image_height,
             opt_image_width=image_width,
         )
@@ -640,10 +645,12 @@ class hackathon():
                     use_int8 = True
                     onnx_opt_path = onnx_path
                     data_dir = os.path.join(self.calibre_dir, model_name)
+                    if not os.path.exists(data_dir):
+                        os.makedirs(data_dir)
                     file_list = os.listdir(data_dir)
                     file_list = [file for file in file_list if file.endswith(".npz")]
                     if len(file_list) < 20:
-                        self.calcuate_data_with_pytroch()
+                        self.calcuate_data_with_pytroch(model_name)
                     else:
                         print(f"found {len(file_list)} calibre data")
                     def calib_data(data_dir=data_dir):

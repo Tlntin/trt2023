@@ -955,10 +955,11 @@ class UnionBlockPT(torch.nn.Module):
         noise,
         temp_di,
         uncond_scale: torch.Tensor,
-        save_sample = False
+        save_sample = False,
+        model_name = "union_model_v2",
     ):
 
-        if save_sample:
+        if save_sample and model_name == "union_model_v2":
             input_dict_1 = {
                 "sample": x.detach().unsqueeze(0).cpu().data.numpy(),
                 "hint": hint.detach().unsqueeze(0).cpu().data.numpy(),
@@ -991,7 +992,7 @@ class UnionBlockPT(torch.nn.Module):
                         key: np.concatenate([self.union_cache[key], value], axis=0)
                         for key, value in input_dict_1.items()
                     }
-        if save_sample:
+        if save_sample and model_name != "union_model_v2":
             input_dict_2 = {
                 "sample": x.detach().unsqueeze(0).cpu().data.numpy(),
                 "hint": hint.detach().unsqueeze(0).cpu().data.numpy(),
@@ -1025,7 +1026,7 @@ class UnionBlockPT(torch.nn.Module):
         # do like this like self.apply_model
         control = self.control_model(x, hint, t, context)
         # sample for unet model
-        if save_sample:
+        if save_sample and model_name != "union_model_v2":
             input_dict_3 = {
                 "sample": x.detach().unsqueeze(0).cpu().data.numpy(),
                 "timestep": t.detach().unsqueeze(0).cpu().data.numpy(),
@@ -1365,6 +1366,7 @@ class SamplerModel(torch.nn.Module):
         temperature: float = 1.,
         batch_size: int = 1,
         save_sample=False,
+        model_name="union_model_v2",
     ):
         h, w, c = control.shape
         device = control.device
@@ -1420,6 +1422,7 @@ class SamplerModel(torch.nn.Module):
                 temp_di=temp_di[index: index + 1],
                 uncond_scale=uncond_scale,
                 save_sample=save_sample,
+                model_name=model_name,
             )
         img = img[:batch_size]
         img = 1. / self.scale_factor * img

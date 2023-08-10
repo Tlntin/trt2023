@@ -88,6 +88,7 @@ class hackathon_pt():
             low_threshold: float,
             high_threshold: float,
             save_sample: bool = False,
+            model_name: str = "union_model_v2",
         ):
         with torch.no_grad():
             img = resize_image(HWC3(input_image), image_resolution)
@@ -111,6 +112,7 @@ class hackathon_pt():
                 eta=eta,
                 batch_size=num_samples,
                 save_sample=save_sample,
+                model_name=model_name,
             )
             x_samples = samples.to(torch.uint8).cpu().numpy()
             results = [x_samples[0]]
