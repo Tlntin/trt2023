@@ -159,8 +159,10 @@ class hackathon():
         from tqdm import trange
         torch_hk = hackathon_pt()
         torch_hk.initialize()
-        for i in trange(20, desc="get int8 from pytorch v2"):
+        for i in trange(40, desc="get int8 from pytorch v2"):
             path = os.path.join(now_dir, "test_imgs", "bird_"+ str(i) + ".jpg")
+            if not os.path.exists(path):
+                continue
             img = cv2.imread(path)
             # generate by ChatGPT4
             prompt_list = [
@@ -196,7 +198,7 @@ class hackathon():
             ]
             # generate by chatGPT4
             seed_list = [
-                3827940, 5061827, 9385621, 1209384, 8492653, 755422, 645372,
+                2946901, 5061827, 9385621, 1209384, 8492653, 755422, 645372,
                 7394016 ,2638491 ,9548023, 4921658, 7869432, 655822,
             ]
             assert len(prompt_list) == len(n_prompt_list)
@@ -222,8 +224,6 @@ class hackathon():
                 )
                 # new_path = os.path.join(now_dir, "output", f"calibre_bird_{i}.jpg")
                 # cv2.imwrite(new_path, new_img[0])
-                break
-
 
     def initialize(self):
         self.apply_canny = CannyDetector()
@@ -649,7 +649,7 @@ class hackathon():
                         os.makedirs(data_dir)
                     file_list = os.listdir(data_dir)
                     file_list = [file for file in file_list if file.endswith(".npz")]
-                    if len(file_list) < 20:
+                    if len(file_list) < 1000:
                         self.calcuate_data_with_pytroch(model_name)
                     else:
                         print(f"found {len(file_list)} calibre data")
@@ -661,12 +661,7 @@ class hackathon():
                             file_path = os.path.join(data_dir, file)
                             raw_data = np.load(file_path)
                             data = {key: raw_data[key] for key in raw_data.files}
-                            keys = list(data.keys())
-                            for v in data.values():
-                                assert len(v) == self.de_noising_steps, \
-                                    print(f"v length is {len(v)}")
-                            for i in range(self.de_noising_steps):
-                                yield {key: data[key][i] for key in keys}
+                            yield data
                     calibrator = Calibrator(
                         data_loader=calib_data(),
                         cache=os.path.join(

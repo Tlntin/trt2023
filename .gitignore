@@ -160,3 +160,4 @@ models/control_sd15_canny.pth
 test_imgs/*.png
 !test_imgs/*.jpg
 output/
+core

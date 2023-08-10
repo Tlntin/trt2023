@@ -935,12 +935,13 @@ class UnionBlockPT(torch.nn.Module):
         self.control_model = control_model
         self.unet_model = unet_model
         now_dir = os.path.dirname(os.path.abspath(__file__))
-        self.carlibre_dir = os.path.join(now_dir, "output", "calibre")
-        if not os.path.exists(self.carlibre_dir):
-            os.mkdir(self.carlibre_dir)
-        self.union_cache = {}
-        self.unet_cache = {}
-        self.control_cache = {}
+        carlibre_dir = os.path.join(now_dir, "output", "calibre")
+        self.union_model_v2_dir = os.path.join(carlibre_dir, "union_model_v2")
+        self.unet_dir = os.path.join(carlibre_dir, "unet")
+        self.control_dir = os.path.join(carlibre_dir, "control_net")
+        for dir1 in [self.union_model_v2_dir, self.unet_dir, self.control_dir]:
+            if not os.path.exists(dir1):
+                os.mkdir(dir1)
 
     def forward(
         self,
@@ -961,66 +962,35 @@ class UnionBlockPT(torch.nn.Module):
 
         if save_sample and model_name == "union_model_v2":
             input_dict_1 = {
-                "sample": x.detach().unsqueeze(0).cpu().data.numpy(),
-                "hint": hint.detach().unsqueeze(0).cpu().data.numpy(),
-                "timestep": t.detach().unsqueeze(0).cpu().data.numpy(),
-                "context": context.detach().unsqueeze(0).cpu().data.numpy(),
-                "alphas": alphas.detach().unsqueeze(0).cpu().data.numpy(),
-                "alphas_prev": alphas_prev.unsqueeze(0).detach().cpu().data.numpy(),
-                "sqrt_one_minus_alphas": sqrt_one_minus_alphas.detach().unsqueeze(0).cpu().data.numpy(),
-                "noise": noise.detach().unsqueeze(0).cpu().data.numpy(),
-                "temp_di": temp_di.detach().unsqueeze(0).cpu().data.numpy(),
-                "uncond_scale": uncond_scale.detach().unsqueeze(0).cpu().data.numpy(),
+                "sample": x.detach().cpu().data.numpy(),
+                "hint": hint.detach().cpu().data.numpy(),
+                "timestep": t.detach().cpu().data.numpy(),
+                "context": context.detach().cpu().data.numpy(),
+                "alphas": alphas.detach().cpu().data.numpy(),
+                "alphas_prev": alphas_prev.detach().cpu().data.numpy(),
+                "sqrt_one_minus_alphas": sqrt_one_minus_alphas.detach().cpu().data.numpy(),
+                "noise": noise.detach().cpu().data.numpy(),
+                "temp_di": temp_di.detach().cpu().data.numpy(),
+                "uncond_scale": uncond_scale.detach().cpu().data.numpy(),
             }
-            if index == 0:
-                self.union_cache = {
-                    key: np.concatenate([self.union_cache[key], value], axis=0)
-                    for key, value in input_dict_1.items()
-                }
-                union_model_v2_dir = os.path.join(self.carlibre_dir, "union_model_v2")
-                file_list = os.listdir(union_model_v2_dir)
-                file_list = [file for file in file_list if file.endswith(".npz")]
-                f_index = len(file_list)
-                input_path = os.path.join(union_model_v2_dir, f"{f_index}.npz")
-                np.savez(input_path, **self.union_cache)
-                self.union_cache = {}
-            else:
-                if len(self.union_cache) == 0:
-                    self.union_cache = input_dict_1
-                else:
-                    self.union_cache = {
-                        key: np.concatenate([self.union_cache[key], value], axis=0)
-                        for key, value in input_dict_1.items()
-                    }
+            
+            file_list = os.listdir(self.union_model_v2_dir)
+            file_list = [file for file in file_list if file.endswith(".npz")]
+            f_index = len(file_list)
+            input_path = os.path.join(self.union_model_v2_dir, f"{f_index}.npz")
+            np.savez(input_path, input_dict_1)
         if save_sample and model_name != "union_model_v2":
             input_dict_2 = {
-                "sample": x.detach().unsqueeze(0).cpu().data.numpy(),
-                "hint": hint.detach().unsqueeze(0).cpu().data.numpy(),
-                "timestep": t.detach().unsqueeze(0).cpu().data.numpy(),
-                "context": context.detach().unsqueeze(0).cpu().data.numpy(),
+                "sample": x.detach().cpu().data.numpy(),
+                "hint": hint.detach().cpu().data.numpy(),
+                "timestep": t.detach().cpu().data.numpy(),
+                "context": context.detach().cpu().data.numpy(),
             }
-            if index == 0:
-                self.control_cache = {
-                    key: np.concatenate([self.control_cache[key], value], axis=0)
-                    for key, value in input_dict_2.items()
-                }
-                control_dir = os.path.join(self.carlibre_dir, "control")
-                if not os.path.exists(control_dir):
-                    os.mkdir(control_dir)
-                file_list = os.listdir(control_dir)
-                file_list = [file for file in file_list if file.endswith(".npz")]
-                f_index = len(file_list)
-                input_path = os.path.join(control_dir, f"{f_index}.npz")
-                np.savez(input_path, **self.control_cache)
-                self.control_cache = {}
-            else:
-                if len(self.control_cache) == 0:
-                    self.control_cache = input_dict_2
-                else:
-                    self.control_cache = {
-                        key: np.concatenate([self.control_cache[key], value], axis=0)
-                        for key, value in input_dict_2.items()
-                    }
+            file_list = os.listdir(self.control_dir)
+            file_list = [file for file in file_list if file.endswith(".npz")]
+            f_index = len(file_list)
+            input_path = os.path.join(self.control_dir, f"{f_index}.npz")
+            np.savez(input_path, **input_dict_2)
 
         b = x.shape[0] // 2
         # do like this like self.apply_model
@@ -1028,34 +998,18 @@ class UnionBlockPT(torch.nn.Module):
         # sample for unet model
         if save_sample and model_name != "union_model_v2":
             input_dict_3 = {
-                "sample": x.detach().unsqueeze(0).cpu().data.numpy(),
-                "timestep": t.detach().unsqueeze(0).cpu().data.numpy(),
-                "context": context.detach().unsqueeze(0).cpu().data.numpy(),
+                "sample": x.detach().cpu().data.numpy(),
+                "timestep": t.detach().cpu().data.numpy(),
+                "context": context.detach().cpu().data.numpy(),
             }
             for i, c in enumerate(control):
-                input_dict_3[f"control_{i}"] = c.detach().unsqueeze(0).cpu().data.numpy()
+                input_dict_3[f"control_{i}"] = c.detach().cpu().data.numpy()
             if index == 0:
-                self.unet_cache = {
-                    key: np.concatenate([self.unet_cache[key], value], axis=0)
-                    for key, value in input_dict_3.items()
-                }
-                unet_dir = os.path.join(self.carlibre_dir, "unet")
-                if not os.path.exists(unet_dir):
-                    os.mkdir(unet_dir)
-                file_list = os.listdir(unet_dir)
+                file_list = os.listdir(self.unet_dir)
                 file_list = [file for file in file_list if file.endswith(".npz")]
                 f_index = len(file_list)
-                input_path = os.path.join(unet_dir, f"{f_index}.npz")
-                np.savez(input_path, **self.unet_cache)
-                self.unet_cache = {}
-            else:
-                if len(self.unet_cache) == 0:
-                    self.unet_cache = input_dict_3
-                else:
-                    self.unet_cache = {
-                        key: np.concatenate([self.unet_cache[key], value], axis=0)
-                        for key, value in input_dict_3.items()
-                    }
+                input_path = os.path.join(self.unet_dir, f"{f_index}.npz")
+                np.savez(input_path, **input_dict_3)
         b_latent = self.unet_model(x, t, context, control)
         e_t = b_latent[b:] + uncond_scale * (b_latent[:b] - b_latent[b:])
         pred_x0 = (x - sqrt_one_minus_alphas * e_t) / alphas
