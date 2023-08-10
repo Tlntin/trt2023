@@ -978,7 +978,7 @@ class UnionBlockPT(torch.nn.Module):
             file_list = [file for file in file_list if file.endswith(".npz")]
             f_index = len(file_list)
             input_path = os.path.join(self.union_model_v2_dir, f"{f_index}.npz")
-            np.savez(input_path, input_dict_1)
+            np.savez(input_path, **input_dict_1)
         if save_sample and model_name != "union_model_v2":
             input_dict_2 = {
                 "sample": x.detach().cpu().data.numpy(),

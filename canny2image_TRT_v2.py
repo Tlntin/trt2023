@@ -704,7 +704,7 @@ class hackathon():
                         file_list.sort(key=lambda x: int(x.split(".")[0]))
                         for file in tqdm(file_list, desc="calib data"):
                             file_path = os.path.join(data_dir, file)
-                            raw_data = np.load(file_path, allow_pickle=True)
+                            raw_data = np.load(file_path)
                             data = {key: raw_data[key] for key in raw_data.files}
                             yield data
                     calibrator = Calibrator(
