@@ -159,7 +159,7 @@ class hackathon():
         from tqdm import trange
         torch_hk = hackathon_pt()
         torch_hk.initialize()
-        for i in trange(40, desc="get int8 from pytorch v2"):
+        for i in trange(20, desc="get int8 from pytorch v2"):
             path = os.path.join(now_dir, "test_imgs", "bird_"+ str(i) + ".jpg")
             if not os.path.exists(path):
                 continue
@@ -179,6 +179,26 @@ class hackathon():
                 "Unsurpassed quality, in-depth refinement",
                 "Premium-grade sharpness, elaborate detailing",
                 "Matchless clarity, intensive particulars",
+                "Unrivaled definition, intricate features",
+                "First-class clarity, immense detailing",
+                "Peerless quality, scrupulous precision",
+                "Supreme accuracy, rich intricacies",
+                "Top-notch refinement, abundant particulars",
+                "Choice grade, detailed to perfection",
+                "Exemplary sharpness, expansive clarity",
+                "Nonpareil resolution, delicate nuances",
+                "Foremost precision, comprehensive specifics",
+                "Premier grade, splendid detailing",
+                "Incomparable clarity, utmost precision",
+                "Pinnacle quality, brimming with details",
+                "Champion standard, filled with intricacies",
+                "Paramount accuracy, loaded with particulars",
+                "Ace level clarity, profound refinement",
+                "Majestic definition, vast detailing",
+                "Top-of-the-line precision, full of nuances",
+                "Unbeatable grade, bursting with specifics",
+                "Stellar quality, teeming with intricacies",
+                "Immaculate sharpness, overflowing with details"
             ]
             # genearate by ChatGPT4
             n_prompt_list = [
@@ -195,11 +215,36 @@ class hackathon():
                 "Excessive length, low clarity, wrong biological details, poorly drawn wings, absent tail feathers",
                 "Prolonged figure, fuzzy resolution, bad depiction of bird anatomy, unconvincing feet, no crest",
                 "Overlong structure, low-grade picture, erroneous depiction of bird structure, poorly sketched legs, missing beak",
+                "Extended frame, low sharpness, incorrect physiological details, weakly sketched wings, lacking talons",
+                "Prolonged silhouette, poor pixel quality, wrong anatomy, inadequately depicted beak, absent crest",
+                "Long-stretched physique, grainy image, flawed biological representation, clumsily drawn feet, missing tail",
+                "Lengthy structure, unclear resolution, bad physiological makeup, unprofessionally portrayed talons, no feathers",
+                "Overextended body, low detail, misinterpreted anatomy, badly crafted beak, absence of claws",
+                "Stretched-out form, low-grade clarity, wrong anatomical details, poorly illustrated legs, lacking flight feathers",
+                "Drawn-out silhouette, grainy resolution, incorrect body representation, weak portrayal of wings, missing talons",
+                "Long-structured shape, poor image definition, bad anatomical makeup, unconvincingly rendered feet, absence of crest",
+                "Extended layout, low clarity, flawed structural details, inadequately sketched beak, no tail feathers",
+                "Long-tailored physique, grainy picture, erroneous anatomical depiction, poorly crafted wings, missing claws",
+                "Overlengthened body, low pixel sharpness, wrong physiological representation, weakly illustrated talons, lacking crest",
+                "Drawn-out form, unclear image, bad depiction of bird structure, unprofessionally rendered beak, no flight feathers",
+                "Lengthy layout, poor definition, incorrect anatomical details, clumsily sketched wings, absence of talons",
+                "Overlong configuration, grainy resolution, flawed body depiction, inadequately portrayed feet, missing crest",
+                "Longish structure, low image clarity, erroneous physiological makeup, weakly crafted beak, no tail feathers",
+                "Extended outline, poor sharpness, incorrect representation of anatomy, poorly drawn talons, absence of flight feathers",
+                "Stretched framework, low pixel definition, flawed bird structure, unconvincingly sketched wings, lacking beak",
+                "Overstretched configuration, grainy quality, wrong anatomical depiction, inadequately rendered feet, no talons",
+                "Long-shaped body, unclear image, bad anatomical representation, clumsily crafted wings, missing crest",
+                "Extended anatomy, low-grade clarity, erroneous depiction of bird details, poorly sketched beak, absence of claws"
             ]
             # generate by chatGPT4
             seed_list = [
-                2946901, 5061827, 9385621, 1209384, 8492653, 755422, 645372,
-                7394016 ,2638491 ,9548023, 4921658, 7869432, 655822,
+                2946901, 5061827, 9385621, 1209384, 8492653,
+                755422, 645372, 7394016 ,2638491 ,9548023,
+                2849032, 5112837, 9358720, 1280345, 8574912,
+                742532, 634952, 7495136, 2578496, 9457123,
+                4951827, 7812435, 658322, 3924157, 6142835,
+                9285347, 3759214, 4862357, 8321495, 9256348,
+                4921658, 7869432, 655822,
             ]
             assert len(prompt_list) == len(n_prompt_list)
             assert len(prompt_list) == len(seed_list)
@@ -649,7 +694,7 @@ class hackathon():
                         os.makedirs(data_dir)
                     file_list = os.listdir(data_dir)
                     file_list = [file for file in file_list if file.endswith(".npz")]
-                    if len(file_list) < 1000:
+                    if len(file_list) < 400:
                         self.calcuate_data_with_pytroch(model_name)
                     else:
                         print(f"found {len(file_list)} calibre data")
