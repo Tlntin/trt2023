@@ -159,5 +159,7 @@ models/control_sd15_canny.pth
 *.jpg
 test_imgs/*.png
 !test_imgs/*.jpg
+!test_imgs/*/*.jpg
+test_imgs/*/.ipynb_checkpoints
 output/
 core
