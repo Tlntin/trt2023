@@ -309,18 +309,77 @@ docker  run  --rm  -t  --network  none  --gpus  '0'  --name  hackathon  -v  /tmp
 ##### 评分规则猜想
 
 - 根据我最近几次的提交记录，大概可以得出一个评分公式（可能不一定对）, 先说几个关键系数。
-
 - 提分系数1：TRT优化倍数。你跑一下pytorch版，算一下平均推理时间，然后再跑一下TRT版，算一下TRT的推理平均分，两者相除，就是优化倍数。比如pytorch推理2700ms, trt推理 900ms，优化倍数就是3倍。如果优化倍数低于0.01，我猜可能就没分了。
-
 - 提分系数2： PDScore优化倍数。最大容忍PDScore是12，你的TRT PDscore如果是6，那么这个精度就是1 / (1 - 6 / 12) = 2，如果你大于12，那就是0，甚至负分（群主大佬应该优化了，现在没有负分了，最低是0）。
-
 - 最后，这个公式大概就是（pytorch推理时间/TRT推理时间）* （1 / (1 - 你的PDScore / 12)）* 某个常数
-
 - 这个常数我估摸大概是300-400左右。上面的变量都是指的是平均值，当然还是老话PDScore大于12没分，我猜应该是单张图片没分。保险起见，最好控制max_PDscore < 12，建议max_PDScore在10以内，因为评测可能会高一些。
-
 - 所以建议大家在线上测评前先估摸一下自己的分数大概是多少，如果有一定提升，再线上测评，这样也可以节省一些算力以及等待时间。
-
 - 最后说一句：这个只是猜测，最终得分还是要以线上测评为准的。
+
+
+
+### 项目构成
+
+- Pytorch版
+
+```bash
+.
+├── annotator
+├── canny2image_torch.py
+├── canny2image_torch_v2.py
+├── cldm
+├── compute_score_old.py
+├── compute_score_old_v2.py
+├── config.py
+├── docs
+├── environment.yaml
+├── font
+├── gradio_annotator.py
+├── gradio_canny2image.py
+├── gradio_depth2image.py
+├── gradio_fake_scribble2image.py
+├── gradio_hed2image.py
+├── gradio_hough2image.py
+├── gradio_normal2image.py
+├── gradio_pose2image.py
+├── gradio_scribble2image_interactive.py
+├── gradio_scribble2image.py
+├── gradio_seg2image.py
+├── ldm
+├── LICENSE
+├── models
+├── README_old.md
+├── share.py
+├── tool_add_control.py
+├── tool_add_control_sd21.py
+├── tool_transfer_control.py
+├── tutorial_dataset.py
+├── tutorial_dataset_test.py
+├── tutorial_train.py
+├── tutorial_train_sd21.py
+```
+
+- TensorRT版
+
+```bash
+.
+├── canny2image_TRT_new.py (基本废弃，不用管)
+├── canny2image_TRT.py  （核心文件）
+├── canny2image_TRT_v2.py  （v2版，用于测试int8 ptq中，测试好了就代替上面的）
+├── compute_score_new.py  (用于本地计算 trt分数和推理效果)
+├── compute_score_new_v2.py （用于本地计算trt v2版分数和推理效果）
+├── compute_score.py （原始版，模拟线上测评）
+├── models.py （储存了一些onnx, pytorch，onnx->trt的一些信息，参考了trt 8.6 demo）
+├── preprocess.sh （用于生成onnx, trt engine,实际就是用来调用canny2image_TRT.py的）
+├── README.md （一些说明，指南，记录）
+├── test_clip_fp16.py  （用于解决clip fp16溢出做的一个测试文件）
+├── test_imgs  （一些测试图片，正好可以用来做int8标定）
+├── test_int8_onnx.py  （用于测试qdq int8标定，没有cache缓存，标定很慢，暂时废弃）
+├── tomesd （用tomesd做加速，实际效果不太行，加速不多，但是pd score降很多）
+├── trt_ddim_sampler.py  （TRT的sample过程，做了一些优化）
+├── trt_ddim_sampler_v2.py（TRT v2版的sample过程，做了一些优化）
+└── utilities.py  （存放一些trt Engine的相关操作，参考了trt 8.6 demo)
+```
 
 
 
@@ -338,6 +397,8 @@ docker  run  --rm  -t  --network  none  --gpus  '0'  --name  hackathon  -v  /tmp
 | 8 | 2023-07-22 15:37:10 | 将union矩阵稀疏化处理，本地测试可以提高10ms左右。不过pd_score也提高了1分，需要线上测试一下得分。 | 4010.3555 | -174分 | 线上效果变成了，可能和pdScore下降有关系。 | 否 |
 | 9   | 2023-07-22 22:33:55 | 逐层对比CLIP模型的TensorRT fp16和onnx cpu fp32的结果，找到溢出层，实现clip fp16正常导出。经过对比，发现在fp16下，负无穷会经过softmax时会溢出。解决办法就是将-inf换成-10000即可。然后clip fp16可以导出了，并且加上了并行tokenizer，大概可以提升2ms多。 | 4178.6414 | -8分 | 总体来说基本没有优化，不过可以留着，方便后面pipline那里可以组合优化。 | 是 |
 | 10 | 2023-07-24 10:40:04 | 工程结构优化，将一些for循环中的通过矩阵乘法，在for循环前完成计算。同时将一些numpy计算换成pytorch的Tensor计算。 | 4281.1209 | 97分 | 线上测试推理大概能快10ms | 是 |
-| 11 |                     | plugin编写，onnx替换若干节点为一个plugin                             |           |              |                                                              |              |
-| 12 | | 工程结构优化，将sample for循环中的一些计算融合到UnionModel中（ControlNet + Unet），减少等待瓶颈。将Sample后的Vae和一些小算子融合。将Sample前的准备工作做成model导出onnx和trt。 | | | | |
+| 11 |                     | plugin编写，onnx替换若干节点为一个plugin                             |           |              | 貌似没啥效果。 |  |
+| 12 | | 工程结构优化，将sample for循环中的一些计算融合到UnionModel中（ControlNet + Unet），减少等待瓶颈。将Sample后的Vae和一些小算子融合。将Sample前的准备工作做成model导出onnx和trt。 | | | 略有提升，区别不大，暂时放在v2版上面 | 否 |
+| 13 | 2023-08-08 11:11:38 | 修改step，从20降到10。这样推理速度提高提高将近一倍，pd score也提高了一倍（本地测试大概从3->6.5）。后面群主说，线上pd score大于8就会压分，经测试还是step=12效果最佳。 | 6670.9045 | 2390分 | 投机取巧，下不为例 | 是 |
+| 14 | 2023-08-09 08:34:00 | 继续工程优化，既然能确定step了，那么可以在`优化12`的基础上，继续优化，将这些计算放到初始化中，并且将初始图和噪音提前创建好Tensor,等计算的时候再随机一次，减少tensor创建和cpu2cuda这个过程。 | 6645.3449 | -15分 | 本地测试能提升2-3ms,线上貌似没效果，可能是误差。 | 是 |
 |      |                     | nsight system 分析流程瓶颈以及交互过程                           |           |              |                                                              |              |
