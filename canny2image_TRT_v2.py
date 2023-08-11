@@ -159,7 +159,7 @@ class hackathon():
         from tqdm import trange
         torch_hk = hackathon_pt()
         torch_hk.initialize()
-        for i in trange(20, desc="get int8 from pytorch v2"):
+        for i in trange(100, desc="get int8 from pytorch v2"):
             path = os.path.join(now_dir, "test_imgs", "bird_"+ str(i) + ".jpg")
             if not os.path.exists(path):
                 continue

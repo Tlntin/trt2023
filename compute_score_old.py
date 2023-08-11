@@ -43,9 +43,12 @@ for i in range(20):
     print("time cost is: ", (end-start) * 1000)
     now_dir = os.path.dirname(os.path.abspath(__file__))
     output_dir = os.path.join(now_dir, "output")
-    if not os.path.exists(output_dir):
-        os.mkdir(output_dir)
-    new_path = os.path.join(output_dir, "bird_old_"+ str(i) + ".jpg")
+    output_image_dir = os.path.join(now_dir, "output", "image")
+    old_img_dir = os.path.join(output_image_dir, "old")
+    for dir1 in [output_image_dir, old_img_dir]:
+        if not os.path.exists(dir1):
+            os.mkdir(dir1)
+    new_path = os.path.join(old_img_dir, "bird_"+ str(i) + ".jpg")
     cv2.imwrite(new_path, new_img[0])
     # generate the base_img by running the pytorch fp32 pipeline (origin code in canny2image_TRT.py)
     # base_path = "base_img.jpg"

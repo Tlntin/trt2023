@@ -185,7 +185,7 @@ class hackathon():
         model_dict["union_model"] = UnionModel(
             control_model=control_net_model,
             unet_model=unet_model,
-            device=self.device,
+            device=self.onnx_device,
             verbose=self.verbose,
             min_batch_size=min_batch_size,
             max_batch_size=max_batch_size,

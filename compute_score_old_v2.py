@@ -54,12 +54,15 @@ for i in range(20):
     print("time cost is: ", (end-start) * 1000)
     time_list.append((end-start) * 1000)
     now_dir = os.path.dirname(os.path.abspath(__file__))
-    output_dir = os.path.join(now_dir, "output")
-    if not os.path.exists(output_dir):
-        os.mkdir(output_dir)
-    new_path = os.path.join(output_dir, "bird_old_v2_"+ str(i) + ".jpg")
+    output_image_dir = os.path.join(now_dir, "output", "image")
+    old_img_dir = os.path.join(output_image_dir, "old")
+    new_img_dir = os.path.join(output_image_dir, "old_v2")
+    for dir1 in [output_image_dir, old_img_dir, new_img_dir]:
+        if not os.path.exists(dir1):
+            os.mkdir(dir1)
+    new_path = os.path.join(new_img_dir,"bird_"+ str(i) + ".jpg")
     cv2.imwrite(new_path, new_img[0])
-    old_path = os.path.join(output_dir, "bird_old_"+ str(i) + ".jpg")
+    old_path = os.path.join(old_img_dir, "bird_"+ str(i) + ".jpg")
     # generate the base_img by running the pytorch fp32 pipeline (origin code in canny2image_TRT.py)
     score = PD(old_path, new_path)
     score_list.append(score)
@@ -68,7 +71,9 @@ for i in range(20):
 avg_score = sum(score_list) / len(score_list)
 avg_time = sum(time_list) / len(time_list)
 time_list = [round(t, 2) for t in time_list]
+score_list = [round(s, 2) for s in score_list]
 print("cost time list ", time_list)
+print("pd score list ", score_list)
 print("PD score, max is {:.4f}, avg: {:.4f}: ".format(max(score_list), avg_score))
 print("time cost, max is {:.2f}ms, avg: {:.2f}ms: ".format(max(time_list), avg_time))
 
