@@ -749,8 +749,13 @@ class MyTempModel(torch.nn.Module):
         self.control_model = control_model
         self.unet_model = unet_model
 
-    def forward(self, sample, hint, timestep, context):
+    def forward(self, sample, hint, timestep, context, control_scales):
         control = self.control_model(sample, hint, timestep, context)
+        dtype = control[0].dtype
+        control = [
+            c * scale.to(dtype=dtype)
+            for c, scale in zip(control, control_scales)
+        ]
         latent = self.unet_model(sample, timestep, context, control)
         return latent
 
@@ -793,7 +798,8 @@ class UnionModel(BaseModel):
             "sample",
             "hint",
             "timestep",
-            "context"
+            "context",
+            "control_scales"
         ]
 
     def get_output_names(self):
@@ -846,6 +852,11 @@ class UnionModel(BaseModel):
                 (batch_size, self.text_maxlen, self.embedding_dim),
                 (max_batch, self.text_maxlen, self.embedding_dim)
             ],
+            "control_scales": [
+                (13,),
+                (13,),
+                (13,),
+            ]
         }
 
     def get_shape_dict(self, batch_size, image_height, image_width):
@@ -856,6 +867,7 @@ class UnionModel(BaseModel):
             'hint': (batch_size, 3, image_height, image_width),
             "timestep": (batch_size,),
             "context": (batch_size, self.text_maxlen, self.embedding_dim),
+            "control_scales": [13],
             'latent': (batch_size, self.unet_dim, latent_height, latent_width)
 
         }
@@ -894,7 +906,9 @@ class UnionModel(BaseModel):
                 self.embedding_dim,
                 dtype=dtype,
                 device=self.device
-            )
+            ),
+            # "control_scales": [13]
+            torch.ones([13], dtype=dtype, device=self.device)
         )
 
 
@@ -939,23 +953,19 @@ class UnionBlockPT(torch.nn.Module):
         self.union_model_v2_dir = os.path.join(carlibre_dir, "union_model_v2")
         self.unet_dir = os.path.join(carlibre_dir, "unet")
         self.control_dir = os.path.join(carlibre_dir, "control_net")
-        for dir1 in [self.union_model_v2_dir, self.unet_dir, self.control_dir]:
+        for dir1 in [
+            carlibre_dir, self.union_model_v2_dir, self.unet_dir, self.control_dir
+        ]:
             if not os.path.exists(dir1):
                 os.mkdir(dir1)
 
     def forward(
         self,
         x,
-        index,
         hint,
         t,
         context,
-        alphas,
-        alphas_prev,
-        sqrt_one_minus_alphas,
-        noise,
-        temp_di,
-        uncond_scale: torch.Tensor,
+        control_scales,
         save_sample = False,
         model_name = "union_model_v2",
     ):
@@ -966,14 +976,7 @@ class UnionBlockPT(torch.nn.Module):
                 "hint": hint.detach().cpu().data.numpy(),
                 "timestep": t.detach().cpu().data.numpy(),
                 "context": context.detach().cpu().data.numpy(),
-                "alphas": alphas.detach().cpu().data.numpy(),
-                "alphas_prev": alphas_prev.detach().cpu().data.numpy(),
-                "sqrt_one_minus_alphas": sqrt_one_minus_alphas.detach().cpu().data.numpy(),
-                "noise": noise.detach().cpu().data.numpy(),
-                "temp_di": temp_di.detach().cpu().data.numpy(),
-                "uncond_scale": uncond_scale.detach().cpu().data.numpy(),
             }
-            
             file_list = os.listdir(self.union_model_v2_dir)
             file_list = [file for file in file_list if file.endswith(".npz")]
             f_index = len(file_list)
@@ -991,8 +994,6 @@ class UnionBlockPT(torch.nn.Module):
             f_index = len(file_list)
             input_path = os.path.join(self.control_dir, f"{f_index}.npz")
             np.savez(input_path, **input_dict_2)
-
-        b = x.shape[0] // 2
         # do like this like self.apply_model
         control = self.control_model(x, hint, t, context)
         # sample for unet model
@@ -1004,19 +1005,14 @@ class UnionBlockPT(torch.nn.Module):
             }
             for i, c in enumerate(control):
                 input_dict_3[f"control_{i}"] = c.detach().cpu().data.numpy()
-            if index == 0:
-                file_list = os.listdir(self.unet_dir)
-                file_list = [file for file in file_list if file.endswith(".npz")]
-                f_index = len(file_list)
-                input_path = os.path.join(self.unet_dir, f"{f_index}.npz")
-                np.savez(input_path, **input_dict_3)
+            file_list = os.listdir(self.unet_dir)
+            file_list = [file for file in file_list if file.endswith(".npz")]
+            f_index = len(file_list)
+            input_path = os.path.join(self.unet_dir, f"{f_index}.npz")
+            np.savez(input_path, **input_dict_3)
+        control = [c * scale for c, scale in zip(control, control_scales)]
         b_latent = self.unet_model(x, t, context, control)
-        e_t = b_latent[b:] + uncond_scale * (b_latent[:b] - b_latent[b:])
-        pred_x0 = (x - sqrt_one_minus_alphas * e_t) / alphas
-        # direction pointing to x_t
-        dir_xt = temp_di * e_t
-        x = alphas_prev * pred_x0 + dir_xt + noise
-        return x
+        return b_latent
 
 
 
@@ -1309,12 +1305,27 @@ class SamplerModel(torch.nn.Module):
         self.alphas_cumprod = alphas_cumprod
         self.ddpm_num_timesteps = num_timesteps
         self.schedule = schedule
+        device = clip_model.device
+        # for guess mode
+        self.guess_control_scales = torch.from_numpy(
+            np.array(
+                [
+                    (0.825 ** float(12 - i)) for i in range(13)
+                ],
+                dtype=np.float32,
+            ),
+        ).to(dtype=torch.float32, device=device)
+        # for un guess mode
+        self.unguess_control_scales = torch.ones(
+            [13], dtype=torch.float32, device=device)
 
     def sample(
         self,
         control: torch.Tensor,
         input_ids: torch.Tensor,
         uncond_scale: torch.Tensor,
+        guess_mode,
+        strength,
         eta = 0.0,
         ddim_num_steps = 20,
         temperature: float = 1.,
@@ -1325,7 +1336,7 @@ class SamplerModel(torch.nn.Module):
         h, w, c = control.shape
         device = control.device
         shape = (batch_size, 4, h // 8, w // 8)
-        control = control.unsqueeze(0).repeat(2 * batch_size, 1, 1, 1)
+        control = control.unsqueeze(0)
         control = einops.rearrange(control, 'b h w c -> b c h w')
         clip_outputs = self.clip_model(input_ids)
         batch_crossattn = clip_outputs.last_hidden_state
@@ -1357,28 +1368,53 @@ class SamplerModel(torch.nn.Module):
         # batch_size = shape[0]
         img = torch.randn(shape, device=device)
         rand_noise = torch.rand_like(img, device=device) * temperature
-        img = img.repeat(2 * batch_size, 1, 1, 1)
         # becasuse seed, rand is pin, use unsqueeze(0) to auto boradcast
         noise = sigmas.unsqueeze(1).unsqueeze(2).unsqueeze(3) * rand_noise
         # --optimizer code end -- #
-        for i in range(0, ddim_num_steps):
-            index = ddim_num_steps - i - 1
-            img = self.union_model(
-                img,
-                index=index,
-                hint=control,
-                t=ddim_sampling_tensor[index],
-                context=batch_crossattn,
-                alphas=alphas[index: index + 1],
-                alphas_prev=alphas_prev[index: index + 1],
-                sqrt_one_minus_alphas=sqrt_one_minus_alphas[index: index + 1],
-                noise=noise[index: index + 1],
-                temp_di=temp_di[index: index + 1],
-                uncond_scale=uncond_scale,
-                save_sample=save_sample,
-                model_name=model_name,
-            )
-        img = img[:batch_size]
+        if guess_mode:
+            control_scales = self.guess_control_scales * strength
+            for i in range(0, ddim_num_steps):
+                index = ddim_num_steps - i - 1
+                cond_output = self.union_model(
+                    img,
+                    hint=control,
+                    t=ddim_sampling_tensor[index][:batch_size],
+                    context=batch_crossattn[:batch_size],
+                    control_scales=control_scales,
+                    save_sample=save_sample,
+                    model_name=model_name,
+                )
+                uncond_output = self.union_model.unet_model(
+                    img,
+                    ddim_sampling_tensor[index][batch_size:],
+                    batch_crossattn[batch_size:]
+                )
+                e_t = uncond_output + uncond_scale * (cond_output - uncond_output)
+                pred_x0 = (img - sqrt_one_minus_alphas[index] * e_t) / alphas[index]
+                # direction pointing to x_t
+                dir_xt = temp_di[index] * e_t
+                img = alphas_prev[index] * pred_x0 + dir_xt + noise[index]
+        else:
+            img = img.repeat(2 * batch_size, 1, 1, 1)
+            control = control.repeat(2 * batch_size, 1, 1, 1)
+            control_scales = self.unguess_control_scales * strength
+            for i in range(0, ddim_num_steps):
+                index = ddim_num_steps - i - 1
+                b_latent = self.union_model(
+                    img,
+                    hint=control,
+                    t=ddim_sampling_tensor[index],
+                    context=batch_crossattn,
+                    control_scales=control_scales,
+                    save_sample=save_sample,
+                    model_name=model_name,
+                )
+                e_t = b_latent[batch_size:] + uncond_scale * (b_latent[:batch_size] - b_latent[batch_size:])
+                pred_x0 = (img - sqrt_one_minus_alphas[index] * e_t) / alphas[index]
+                # direction pointing to x_t
+                dir_xt = temp_di[index] * e_t
+                img = alphas_prev[index] * pred_x0 + dir_xt + noise[index]
+            img = img[:batch_size]
         img = 1. / self.scale_factor * img
         img = self.vae_model(img)
         images = (

@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 import einops
 from cuda import cudart
 
@@ -60,15 +61,29 @@ class TRT_DDIMSampler(object):
         # img and noise
         shape = (batch_size, 4, 32, 48)
         self.img = torch.randn(shape, device=device)
-        self.img2 = self.img.repeat(2 * batch_size, 1, 1, 1)
         self.rand_noise = torch.rand(shape, device=device)
 
+        # for guess mode and cond scale
+        # if guess
+        self.guess_control_scales = torch.from_numpy(
+            np.array(
+                [(0.825 ** float(12 - i)) for i in range(13)],
+                dtype=np.float32
+            ),
+        ).to(dtype=torch.float32, device=device)
+        # if no guess
+        self.unguess_control_scales = torch.ones(
+            [13], dtype=torch.float32, device=device
+        )
+        
     @torch.no_grad()
     def sample(
         self,
         control,
         batch_crossattn,
         ddim_num_steps,
+        guess_mode,
+        strength,
         eta=0.,
         temperature=1.,
         uncond_scale=1.,
@@ -105,6 +120,10 @@ class TRT_DDIMSampler(object):
             (1 - self.alphas_prev) / (1 - self.alphas) * (1 - self.alphas / self.alphas_prev)
         )
         temp_di = (1. - self.alphas_prev - sigmas ** 2).sqrt()
+        if guess_mode:
+            control_scales = self.guess_control_scales * strength
+        else:
+            control_scales = self.unguess_control_scales * strength
         # --- copy end  ---
         # ---optimizer code for forward -- #
         # alphas = alphas.sqrt()
@@ -133,6 +152,7 @@ class TRT_DDIMSampler(object):
                 noise_at=noise[index],
                 temp_di_at=temp_di[index],
                 uncond_scale=uncond_scale,
+                control_scales=control_scales,
             )
         return img[:batch_size]
     
@@ -151,7 +171,7 @@ class TRT_DDIMSampler(object):
         )
         return result
     
-    def apply_model(self, sample, hint, timestep, context):
+    def apply_model(self, sample, hint, timestep, context, control_scales):
         control_dict = self.run_engine(
             "union_model",
             {
@@ -159,6 +179,7 @@ class TRT_DDIMSampler(object):
                 "hint": hint,
                 "timestep": timestep,
                 "context": context,
+                "control_scales": control_scales,
             }
         )
         eps = control_dict["latent"]
@@ -186,10 +207,11 @@ class TRT_DDIMSampler(object):
         noise_at,
         temp_di_at,
         uncond_scale,
+        control_scales,
     ):
         if self.do_summarize:
             cudart.cudaEventRecord(self.events[f'union_model_{index}-start'], 0)
-        b_latent = self.apply_model(x, hint, t, context)
+        b_latent = self.apply_model(x, hint, t, context, control_scales)
         # b = x.shape[0] // 2
         if self.do_summarize:
             cudart.cudaEventRecord(self.events[f'union_model_{index}-stop'], 0)

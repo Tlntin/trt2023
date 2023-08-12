@@ -109,6 +109,8 @@ class hackathon_pt():
                 input_ids=input_ids,
                 uncond_scale=torch.tensor([scale], dtype=torch.float32, device=self.device),
                 ddim_num_steps=ddim_steps,
+                guess_mode=guess_mode,
+                strength=strength,
                 eta=eta,
                 batch_size=num_samples,
                 save_sample=save_sample,
