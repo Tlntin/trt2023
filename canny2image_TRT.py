@@ -249,7 +249,9 @@ class hackathon():
 
         # --- first pre predict to speed CUDA graph and other --- #
         for i in range(4):
-            first_image_path = os.path.join(now_dir, "test_imgs", f"bird_{i}.jpg")
+            first_image_path = os.path.join(
+                now_dir, "test_imgs", "bird", f"{i}.jpg"
+            )
             first_image = cv2.imread(first_image_path)
             self.process(
                 first_image,
