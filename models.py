@@ -860,9 +860,14 @@ class MyTempModel(torch.nn.Module):
 
     def forward(self, sample, hint, timestep, context, control_scales):
         control = self.control_model(sample, hint, timestep, context)
-        dtype = control[0].dtype
+        # dtype = control[0].dtype
+        # control = [
+        #     c * scale.to(dtype=dtype)
+        #     for c, scale in zip(control, control_scales)
+        # ]
+        # dtype = control[0].dtype
         control = [
-            c * scale.to(dtype=dtype)
+            c * scale
             for c, scale in zip(control, control_scales)
         ]
         latent = self.unet_model(sample, timestep, context, control)

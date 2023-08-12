@@ -454,7 +454,8 @@ class hackathon():
                         print(f"Exporting model: {onnx_path}")
                         model = obj.get_model()
                         opt_batch_size = self.stage_batch_dict[model_name]["opt"]
-                        with torch.inference_mode(), torch.autocast("cuda"):
+                        # with torch.inference_mode(), torch.autocast("cuda"):
+                        with torch.no_grad():
                             inputs = obj.get_sample_input(
                                 opt_batch_size,
                                 opt_image_height,
@@ -527,18 +528,18 @@ class hackathon():
             )
             opt_batch_size = self.stage_batch_dict[model_name]["opt"]
             if force_build or not os.path.exists(engine.engine_path):
-                #if model_name == "clip":
-                #    use_fp16 = False
-                #else:
-                #    use_fp16 = True
+                if model_name == "clip":
+                    use_fp16 = False
+                else:
+                    use_fp16 = True
                 # if model_name == 'union_model':
                 #     use_sparse_weights=True
                 # else:
                 #     use_sparse_weights=False
                 engine.build(
                     onnx_opt_path,
-                    fp16=True,
-                    #fp16=use_fp16,
+                    # fp16=True,
+                    fp16=use_fp16,
                     sparse_weights=False,
                     input_profile=obj.get_input_profile(
                         opt_batch_size, opt_image_height, opt_image_width,
@@ -698,7 +699,7 @@ class hackathon():
             obj = self.model_dict[model_name]
             image_height = 256
             image_width = 384
-            if guess_mode == True:
+            if guess_mode:
                 min_batch_size = self.stage_batch_dict[model_name]["min"]
                 self.engine[model_name].allocate_buffers(
                     shape_dict=obj.get_shape_dict(
@@ -769,7 +770,7 @@ class hackathon():
     
 
 if __name__ == "__main__":
-    hk = hackathon(do_compare=True, onnx_device="cuda") 
+    hk = hackathon(do_compare=True, onnx_device="cpu") 
     hk.initialize()
 
 
