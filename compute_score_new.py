@@ -35,20 +35,22 @@ for i in range(20):
     path = "/home/player/pictures_croped/bird_"+ str(i) + ".jpg"
     img = cv2.imread(path)
     start = datetime.datetime.now().timestamp()
-    new_img = hk.process(img,
-            "a bird", 
-            "best quality, extremely detailed", 
-            "longbody, lowres, bad anatomy, bad hands, missing fingers", 
-            1, 
-            256, 
-            20,
-            True, 
-            1.02, 
-            9, 
-            2946901, 
-            0.0, 
-            100, 
-            200)
+    new_img = hk.process(
+        img,
+        "a bird", 
+        "best quality, extremely detailed", 
+        "longbody, lowres, bad anatomy, bad hands, missing fingers", 
+        1, 
+        256, 
+        20,
+        False,
+        1, 
+        9, 
+        2946901, 
+        0.0, 
+        100, 
+        200
+    )
     end = datetime.datetime.now().timestamp()
     print("time cost is: ", (end - start) * 1000)
     time_list.append((end - start) * 1000)

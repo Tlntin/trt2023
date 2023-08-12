@@ -612,7 +612,7 @@ class UNet(BaseModel):
                 device=self.device
             ),
             # "timestep": ['B'],
-            torch.tensor([951] * batch_size, dtype=dtype, device=self.device),
+            torch.tensor([951] * batch_size, dtype=torch.int32, device=self.device),
             # "context": ['B', 'T', 'E']
             torch.randn(
                 batch_size,
@@ -743,6 +743,115 @@ class UNet(BaseModel):
         )
 
 
+class UNet_V2(BaseModel):
+    """
+    this Unet is build with no control input
+    """
+    def __init__(self,
+        model,
+        fp16=False,
+        device='cuda',
+        verbose=True,
+        min_batch_size=1,
+        max_batch_size=16,
+        embedding_dim=768,
+        text_maxlen=77,
+        unet_dim=4
+    ):
+        super(UNet_V2, self).__init__(
+            fp16=fp16,
+            device=device,
+            verbose=verbose,
+            min_batch_size=min_batch_size,
+            max_batch_size=max_batch_size,
+            embedding_dim=embedding_dim,
+            text_maxlen=text_maxlen
+        )
+        self.unet_dim = unet_dim
+        self.name = "UNet_V2"
+        self.model = model
+
+    def get_model(self):
+        # model_opts = {'revision': 'fp16', 'torch_dtype': torch.float16} if self.fp16 else {}
+        if self.fp16:
+            self.model = self.model.to(dtype=torch.float16, revision='fp16')
+        return self.model
+
+    def get_input_names(self):
+        return [
+            "sample",
+            "timestep",
+            "context",
+        ]
+
+    def get_output_names(self):
+       return ['latent']
+
+    def get_dynamic_axes(self):
+        return {
+            "sample": {0: 'B', 2: '8H', 3: '8W'},
+            "timestep": {0: 'B'},
+            "context": {0: 'B'},
+            'latent': {0: 'B', 2: '8H', 3: '8W'}
+        }
+
+    def get_input_profile(self, batch_size, image_height, image_width, static_batch, static_shape):
+        latent_height, latent_width = self.check_dims(batch_size, image_height, image_width)
+        min_batch, max_batch, _, _, _, _, min_latent_height, max_latent_height, min_latent_width, max_latent_width = \
+            self.get_minmax_dims(batch_size, image_height, image_width, static_batch, static_shape)
+        return {
+            'sample': [
+                (min_batch, self.unet_dim, min_latent_height, min_latent_width), # min
+                (batch_size, self.unet_dim, latent_height, latent_width), # opt
+                (max_batch, self.unet_dim, max_latent_height, max_latent_width) # max
+            ],
+            "timestep": [
+                (min_batch,),     
+                (batch_size,),
+                (max_batch,)
+            ],
+            "context": [
+                (min_batch, self.text_maxlen, self.embedding_dim),
+                (batch_size, self.text_maxlen, self.embedding_dim),
+                (max_batch, self.text_maxlen, self.embedding_dim)
+            ]
+        }
+
+    def get_shape_dict(self, batch_size, image_height, image_width):
+        latent_height, latent_width = self.check_dims(batch_size, image_height, image_width)
+        return {
+            'sample': (batch_size, self.unet_dim, latent_height, latent_width),
+            "timestep": (batch_size,),
+            "context": (batch_size, self.text_maxlen, self.embedding_dim),
+            'latent': (batch_size, self.unet_dim, latent_height, latent_width)
+        }
+
+    def get_sample_input(self, batch_size, image_height, image_width):
+        latent_height, latent_width = self.check_dims(batch_size, image_height, image_width)
+        dtype = torch.float16 if self.fp16 else torch.float32
+        return (
+            # 'sample': ['B', 4, '8H', '8W']
+            torch.randn(
+                batch_size,
+                self.unet_dim,
+                latent_height,
+                latent_width,
+                dtype=dtype,
+                device=self.device
+            ),
+            # "timestep": ['B'],
+            torch.tensor([951] * batch_size, dtype=torch.int32, device=self.device),
+            # "context": ['B', 'T', 'E']
+            torch.randn(
+                batch_size,
+                self.text_maxlen,
+                self.embedding_dim,
+                dtype=dtype,
+                device=self.device
+            ),
+        )
+
+
 class MyTempModel(torch.nn.Module):
     def __init__(self, control_model, unet_model):
         super(MyTempModel, self).__init__()
@@ -860,7 +969,6 @@ class UnionModel(BaseModel):
         }
 
     def get_shape_dict(self, batch_size, image_height, image_width):
-        assert batch_size % 2 == 0
         latent_height, latent_width = self.check_dims(batch_size, image_height, image_width)
         return {
             'sample': (batch_size, self.unet_dim, latent_height, latent_width),

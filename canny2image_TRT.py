@@ -17,7 +17,7 @@ import os
 import onnx
 import shutil
 from cuda import cudart
-from models import (get_embedding_dim, CLIP, UnionModel, VAE)
+from models import (get_embedding_dim, CLIP, UNet_V2, UnionModel, VAE)
 from polygraphy import cuda
 import tensorrt as trt
 from utilities import Engine, TRT_LOGGER
@@ -36,7 +36,7 @@ class hackathon():
     def __init__(
         self,
         version="1.5",
-        stages=["clip", "union_model", "vae"],
+        stages=["clip", "union_model", "unet_v2", "vae"],
         de_noising_steps=20,
         guidance_scale=9.0,
         onnx_device="cpu",
@@ -101,6 +101,7 @@ class hackathon():
             "clip": "cond_stage_model",
             "control_net": "control_model",
             "unet": "diffusion_model",
+            "unet_v2": "diffusion_model",
             "vae": "first_stage_model"
         }
         self.stage_batch_dict = {
@@ -109,10 +110,17 @@ class hackathon():
                 "opt": 2,
                 "max": 2,
             },
+            # union model拼接了control_net和Unet，如果是guess mode, 则batch=1,否则batch=1
             "union_model": {
-                "min": 2,
+                "min": 1,
                 "opt": 2,
                 "max": 2,
+            },
+            # 这个unet v2仅用于guess model，此时输入的control=None
+            "unet_v2": {
+                "min": 1,
+                "opt": 1,
+                "max": 1,
             },
             "vae": {
                 "min": 1,
@@ -131,6 +139,10 @@ class hackathon():
         self.events = {}
         self.shared_device_memory = None
         self.embedding_dim = get_embedding_dim(self.version)
+        # 储存一些旧模型信息
+        self.model_dict = {}
+        # 记录上一次计算是不是guess_mode
+        self.last_guess_mode = False
 
     def initialize(self):
         self.apply_canny = CannyDetector()
@@ -142,13 +154,12 @@ class hackathon():
             )
         )
         model = model.to(self.onnx_device)
-        model_dict = {}
         for k, v in self.state_dict.items():
-            if k != "unet":
+            if k not in ["unet", "unet_v2"]:
                 temp_model = getattr(model, v)
             else:
                 temp_model = getattr(model.model, v)
-            if k in ["clip", "vae"]:
+            if k in ["clip", "vae", "unet_v2"]:
                 min_batch_size = self.stage_batch_dict[k]["min"]
                 max_batch_size = self.stage_batch_dict[k]["max"]
             if k == "clip":
@@ -163,7 +174,17 @@ class hackathon():
                     embedding_dim=self.embedding_dim
                 )
                 delattr(model, v)
-                model_dict[k] = new_model
+                self.model_dict[k] = new_model
+            elif k == "unet_v2":
+                new_model = UNet_V2(
+                    model=temp_model,
+                    device=self.onnx_device,
+                    verbose=self.verbose, 
+                    min_batch_size=min_batch_size,
+                    max_batch_size=max_batch_size,
+                )
+                # 这里不用删除model下面的属性，待会union还能用
+                self.model_dict[k] = new_model
             elif k == "vae":
                 new_model = VAE(
                     model=temp_model,
@@ -174,7 +195,7 @@ class hackathon():
                     embedding_dim=self.embedding_dim
                 )
                 delattr(model, v)
-                model_dict[k] = new_model
+                self.model_dict[k] = new_model
             else:
                 pass
         # merge control_net and unet
@@ -182,7 +203,7 @@ class hackathon():
         unet_model = getattr(model.model, self.state_dict["unet"])
         min_batch_size = self.stage_batch_dict["union_model"]["min"]
         max_batch_size = self.stage_batch_dict["union_model"]["max"]
-        model_dict["union_model"] = UnionModel(
+        self.model_dict["union_model"] = UnionModel(
             control_model=control_net_model,
             unet_model=unet_model,
             device=self.onnx_device,
@@ -216,7 +237,6 @@ class hackathon():
         image_height = 256
         image_width = 384
         self.load_engines(
-            model_dict=model_dict,
             engine_dir=engine_dir,
             onnx_dir=onnx_dir,
             onnx_opset=17,
@@ -225,15 +245,14 @@ class hackathon():
         )
         # --- load resource --- #
         self.load_resources(
-            model_dict=model_dict,
             image_height=image_height,
             image_width=image_width,
         )
-        # clear model_dict
-        for k, v in model_dict.items():
-            del v
-            gc.collect()
-            torch.cuda.empty_cache()
+        # clear model_dict(貌似不用清理了，下面union_model会用到)
+        # for k, v in self.model_dict.items():
+        #     del v
+        #     gc.collect()
+        #     torch.cuda.empty_cache()
         self.ddim_sampler = TRT_DDIMSampler(
             device=self.device,
             engine=self.engine,
@@ -248,27 +267,28 @@ class hackathon():
         )
 
         # --- first pre predict to speed CUDA graph and other --- #
-        for i in range(4):
-            first_image_path = os.path.join(
-                now_dir, "test_imgs", "bird", f"{i}.jpg"
-            )
-            first_image = cv2.imread(first_image_path)
-            self.process(
-                first_image,
-                "a bird", 
-                "best quality, extremely detailed", 
-                "longbody, lowres, bad anatomy, bad hands, missing fingers", 
-                1, 
-                256, 
-                20,
-                True, 
-                1.02, 
-                9, 
-                2946901, 
-                0.0, 
-                100, 
-                200
-            )
+        for guess_mode in [True, False]:
+            for i in range(4):
+                first_image_path = os.path.join(
+                    now_dir, "test_imgs", "bird", f"{i}.jpg"
+                )
+                first_image = cv2.imread(first_image_path)
+                self.process(
+                    first_image,
+                    "a bird", 
+                    "best quality, extremely detailed", 
+                    "longbody, lowres, bad anatomy, bad hands, missing fingers", 
+                    1, 
+                    256, 
+                    20,
+                    guess_mode,
+                    1.0, 
+                    9, 
+                    2946901, 
+                    0.0, 
+                    100, 
+                    200
+                )
     
     def text_embedding(self, text_list: list):
         # batch_encoding = self.tokenizer(
@@ -297,7 +317,7 @@ class hackathon():
         )["text_embeddings"]
         return text_embeddings
     
-    def load_resources(self, model_dict, image_height, image_width):
+    def load_resources(self, image_height, image_width):
         # Initialize noise generator
         # self.generator = torch.Generator(device="cuda").manual_seed(seed) if seed else None
 
@@ -319,7 +339,7 @@ class hackathon():
 
         # Allocate buffers for TensorRT engine bindings
         for model_name in self.stages:
-            obj = model_dict[model_name]
+            obj = self.model_dict[model_name]
             opt_batch_size = self.stage_batch_dict[model_name]["opt"]
             self.engine[model_name].allocate_buffers(
                 shape_dict=obj.get_shape_dict(
@@ -366,7 +386,7 @@ class hackathon():
 
     def load_engines(
         self,
-        model_dict,
+        # model_dict,
         engine_dir,
         onnx_dir,
         onnx_opset,
@@ -424,7 +444,7 @@ class hackathon():
         print("model args: ", models_args)
         # Export models to ONNX
         for model_name in self.stages:
-            obj = model_dict[model_name]
+            obj = self.model_dict[model_name]
             engine_path = self.get_engine_path(model_name, engine_dir)
             if force_export or force_build or not os.path.exists(engine_path):
                 onnx_path = self.get_onnx_path(model_name, onnx_dir, opt=False)
@@ -483,7 +503,7 @@ class hackathon():
         # clear old pytorch model
         print("=" * 20)
         for model_name in self.stages:
-            obj = model_dict[model_name]
+            obj = self.model_dict[model_name]
             obj.model = obj.model.to("cpu")
             print(f"clear old {model_name} pytorch model")
             delattr(obj, "model")
@@ -493,7 +513,7 @@ class hackathon():
 
         # Build TensorRT engines
         for model_name in self.stages:
-            obj = model_dict[model_name]
+            obj = self.model_dict[model_name]
             engine_path = self.get_engine_path(model_name, engine_dir)
             engine = Engine(engine_path)
             onnx_path = self.get_onnx_path(
@@ -585,7 +605,8 @@ class hackathon():
             opt_image_height,
             opt_image_width,
             static_batch,
-            static_shape
+            static_shape,
+            use_fp16=False,
         ):
         input_profile=obj.get_input_profile(
             opt_batch_size, opt_image_height, opt_image_width,
@@ -594,7 +615,19 @@ class hackathon():
 
         input_metadata=TensorMetadata()
         for key in input_profile.keys():
-            input_metadata.add(key, dtype=np.float32, shape = input_profile[key][0], min_shape=None, max_shape=None)
+            if key == "timestep":
+                dtype = np.int32
+            elif use_fp16:
+                dtype = np.float16
+            else:
+                dtype = np.float32
+            input_metadata.add(
+                key,
+                dtype=dtype,
+                shape=input_profile[key][1],
+                min_shape=input_profile[key][0],
+                max_shape=input_profile[key][2],
+            )
 
         data_loader = DataLoader(input_metadata=input_metadata)
 
@@ -614,7 +647,7 @@ class hackathon():
         run_results = Comparator.run(runners, data_loader=data_loader)
         Comparator.compare_accuracy(run_results, compare_func=compare_func)
     
-    def print_sumary(self):
+    def print_sumary(self, ddim_num_steps: int):
         print('|------------|--------------|')
         print('| {:^25} | {:^12} |'.format('Module', 'Latency'))
         print('|------------|--------------|')
@@ -625,7 +658,7 @@ class hackathon():
                 self.events['clip-stop']
             )[1]
         ))
-        for index in range(self.de_noising_steps):
+        for index in range(ddim_num_steps):
             print('| {:^25} | {:>9.2f} ms |'.format(
                 'ControlNet_{} + Unet_{}'.format(index, index),
                 cudart.cudaEventElapsedTime(
@@ -642,22 +675,55 @@ class hackathon():
         ))
     
     def process(
-            self,
-            input_image: np.array,
-            prompt: str,
-            a_prompt: str,
-            n_prompt: str,
-            num_samples: int,
-            image_resolution: int,
-            ddim_steps: int,
-            guess_mode: bool,
-            strength: int,
-            scale: int,
-            seed: int,
-            eta: float,
-            low_threshold: float,
-            high_threshold: float,
-        ):
+        self,
+        input_image: np.array,
+        prompt: str,
+        a_prompt: str,
+        n_prompt: str,
+        num_samples: int,
+        image_resolution: int,
+        ddim_steps: int,
+        guess_mode: bool,
+        strength: int,
+        scale: int,
+        seed: int,
+        eta: float,
+        low_threshold: float,
+        high_threshold: float,
+    ):
+        # 由于guess mode计算和非guess mode不一样，所以这里加入判断
+        if self.last_guess_mode != guess_mode:
+            # 如果这次和上次guess mode不一样, UnionModel需要重新分配shape
+            model_name = "union_model"
+            obj = self.model_dict[model_name]
+            image_height = 256
+            image_width = 384
+            if guess_mode == True:
+                min_batch_size = self.stage_batch_dict[model_name]["min"]
+                self.engine[model_name].allocate_buffers(
+                    shape_dict=obj.get_shape_dict(
+                        min_batch_size, image_height, image_width
+                    ),
+                    device=self.device
+                )
+            else:
+                opt_batch_size = self.stage_batch_dict[model_name]["opt"]
+                self.engine[model_name].allocate_buffers(
+                    shape_dict=obj.get_shape_dict(
+                        opt_batch_size, image_height, image_width
+                    ),
+                    device=self.device
+                )
+            # shape变化，如果有cuda graph，则需要重新录制
+            shape_change = True
+        else:
+            shape_change = False
+        if guess_mode:
+            # guess mode很难校准，还是用原版步数
+            ddim_num_steps = ddim_steps
+        else:
+            ddim_num_steps = 12
+        self.last_guess_mode = guess_mode
         with torch.no_grad():
             img = resize_image(HWC3(input_image), image_resolution)
             H, W, C = img.shape
@@ -679,12 +745,13 @@ class hackathon():
             samples = self.ddim_sampler.sample(
                 control=control,
                 batch_crossattn=batch_crossattn,
-                ddim_num_steps=12,
+                ddim_num_steps=ddim_num_steps,
                 guess_mode=guess_mode,
                 strength=strength,
                 eta=eta,
                 uncond_scale=scale,
                 batch_size=num_samples,
+                shape_change=shape_change,
             )
             if self.do_summarize:
                 cudart.cudaEventRecord(self.events['vae-start'], 0)
@@ -697,7 +764,7 @@ class hackathon():
 
             results = [x_samples[i] for i in range(num_samples)]
             if self.do_summarize:
-                self.print_sumary()
+                self.print_sumary(ddim_num_steps=ddim_num_steps)
         return results
     
 

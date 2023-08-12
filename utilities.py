@@ -91,7 +91,9 @@ class Engine():
         self.context = None
         self.buffers = OrderedDict()
         self.tensors = OrderedDict()
-        self.cuda_graph_instance = None # cuda graph
+        # for cuda graph
+        self.graph = None
+        self.cuda_graph_instance = None 
 
     def __del__(self):
         [buf.free() for buf in self.buffers.values() if isinstance(buf, cuda.DeviceArray) ]
@@ -309,7 +311,7 @@ class Engine():
             tensor = torch.empty(tuple(shape), dtype=numpy_to_torch_dtype_dict[dtype]).to(device=device)
             self.tensors[binding] = tensor
 
-    def infer(self, feed_dict, stream, cuda_stream, use_cuda_graph=False):
+    def infer(self, feed_dict, stream, cuda_stream, shape_change=False, use_cuda_graph=False):
         for name, buf in feed_dict.items():
             self.tensors[name].copy_(buf)
 
@@ -317,7 +319,7 @@ class Engine():
             self.context.set_tensor_address(name, tensor.data_ptr())
 
         if use_cuda_graph:
-            if self.cuda_graph_instance is not None:
+            if not shape_change and self.cuda_graph_instance is not None:
                 CUASSERT(cudart.cudaGraphLaunch(self.cuda_graph_instance, cuda_stream.ptr))
                 CUASSERT(cudart.cudaStreamSynchronize(cuda_stream.ptr))
             else:
@@ -330,6 +332,7 @@ class Engine():
                 self.context.execute_async_v3(cuda_stream.ptr)
                 self.graph = CUASSERT(cudart.cudaStreamEndCapture(cuda_stream.ptr))
                 self.cuda_graph_instance = CUASSERT(cudart.cudaGraphInstantiate(self.graph, 0))
+
         else:
             noerror = self.context.execute_async_v3(stream.ptr)
             if not noerror:
