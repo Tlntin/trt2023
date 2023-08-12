@@ -325,11 +325,12 @@ docker  run  --rm  -t  --network  none  --gpus  '0'  --name  hackathon  -v  /tmp
 ```bash
 .
 ├── annotator
-├── canny2image_torch.py
-├── canny2image_torch_v2.py
+├── canny2image_torch.py (原始canny2image_TRT.py备份)
+├── canny2image_torch_v2.py (简单优化后的Pytorch)
 ├── cldm
-├── compute_score_old.py
-├── compute_score_old_v2.py
+├── compute_score_old.py  (用于生成pytorch处理后的图片)
+├── compute_score_old_v1.py  (用于测试原始Pytroch版step不同情况下的表现)
+├── compute_score_old_v2.py (用于测试优化后Pytorch版分数)
 ├── config.py
 ├── docs
 ├── environment.yaml
@@ -365,9 +366,9 @@ docker  run  --rm  -t  --network  none  --gpus  '0'  --name  hackathon  -v  /tmp
 .
 ├── canny2image_TRT_new.py (基本废弃，不用管)
 ├── canny2image_TRT.py  （核心文件）
-├── canny2image_TRT_v2.py  （v2版，用于测试int8 ptq中，测试好了就代替上面的）
+├── canny2image_TRT_v2.py  （v2版，用于测试int8 ptq中，测试好了就代替上面的，可忽略）
 ├── compute_score_new.py  (用于本地计算 trt分数和推理效果)
-├── compute_score_new_v2.py （用于本地计算trt v2版分数和推理效果）
+├── compute_score_new_v2.py （用于本地计算trt v2版分数和推理效果, 可忽略）
 ├── compute_score.py （原始版，模拟线上测评）
 ├── models.py （储存了一些onnx, pytorch，onnx->trt的一些信息，参考了trt 8.6 demo）
 ├── preprocess.sh （用于生成onnx, trt engine,实际就是用来调用canny2image_TRT.py的）
