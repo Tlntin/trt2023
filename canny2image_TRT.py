@@ -723,7 +723,7 @@ class hackathon():
             # guess mode很难校准，还是用原版步数
             ddim_num_steps = ddim_steps
         else:
-            ddim_num_steps = 11
+            ddim_num_steps = 10
         self.last_guess_mode = guess_mode
         with torch.no_grad():
             img = resize_image(HWC3(input_image), image_resolution)
@@ -735,7 +735,8 @@ class hackathon():
             control = torch.from_numpy(detected_map.copy()).float().cuda() / 255.0
             if seed == -1:
                 seed = random.randint(0, 65535)
-            seed_everything(seed)
+            # seed_everything(seed)
+            seed_everything(2946901)
             if self.do_summarize:
                 cudart.cudaEventRecord(self.events['clip-start'], 0)
             text_list = [prompt + ', ' + a_prompt] * num_samples + \
