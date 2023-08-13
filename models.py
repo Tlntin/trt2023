@@ -1460,7 +1460,7 @@ class SamplerModel(torch.nn.Module):
             dtype=torch.int32,
             device=device
         )
-        ddim_sampling_tensor = ddim_timesteps.unsqueeze(1).repeat(1, 2 * batch_size).float()
+        ddim_sampling_tensor = ddim_timesteps.unsqueeze(1)
         # ddim sampling parameters
         alphas = self.alphas_cumprod[ddim_timesteps]
         alphas_prev = torch.cat(
@@ -1480,9 +1480,9 @@ class SamplerModel(torch.nn.Module):
         # noise = sigmas_at * rand_noise
         # batch_size = shape[0]
         img = torch.randn(shape, device=device)
-        rand_noise = torch.rand_like(img, device=device) * temperature
+        # rand_noise = torch.rand_like(img, device=device) * temperature
         # becasuse seed, rand is pin, use unsqueeze(0) to auto boradcast
-        noise = sigmas.unsqueeze(1).unsqueeze(2).unsqueeze(3) * rand_noise
+        # noise = sigmas.unsqueeze(1).unsqueeze(2).unsqueeze(3) * rand_noise
         # --optimizer code end -- #
         if guess_mode:
             control_scales = self.guess_control_scales * strength
@@ -1491,25 +1491,30 @@ class SamplerModel(torch.nn.Module):
                 cond_output = self.union_model(
                     img,
                     hint=control,
-                    t=ddim_sampling_tensor[index][:batch_size],
+                    t=ddim_sampling_tensor[index],
                     context=batch_crossattn[:batch_size],
                     control_scales=control_scales,
                     save_sample=save_sample,
                     model_name=model_name,
                 )
-                uncond_output = self.union_model.unet_model(
-                    img,
-                    ddim_sampling_tensor[index][batch_size:],
-                    batch_crossattn[batch_size:]
-                )
-                e_t = uncond_output + uncond_scale * (cond_output - uncond_output)
+                if uncond_scale == 1:
+                    e_t = cond_output
+                else:
+                    uncond_output = self.union_model.unet_model(
+                        img,
+                        ddim_sampling_tensor[index],
+                        batch_crossattn[batch_size:]
+                    )
+                    e_t = uncond_output + uncond_scale * (cond_output - uncond_output)
                 pred_x0 = (img - sqrt_one_minus_alphas[index] * e_t) / alphas[index]
                 # direction pointing to x_t
                 dir_xt = temp_di[index] * e_t
-                img = alphas_prev[index] * pred_x0 + dir_xt + noise[index]
+                noise = sigmas[index] * torch.randn(shape, device=device, dtype=torch.float32) * temperature
+                img = alphas_prev[index] * pred_x0 + dir_xt + noise
         else:
             img = img.repeat(2 * batch_size, 1, 1, 1)
             control = control.repeat(2 * batch_size, 1, 1, 1)
+            ddim_sampling_tensor = ddim_sampling_tensor.repeat(1, 2 * batch_size)
             control_scales = self.unguess_control_scales * strength
             for i in range(0, ddim_num_steps):
                 index = ddim_num_steps - i - 1
@@ -1526,7 +1531,8 @@ class SamplerModel(torch.nn.Module):
                 pred_x0 = (img - sqrt_one_minus_alphas[index] * e_t) / alphas[index]
                 # direction pointing to x_t
                 dir_xt = temp_di[index] * e_t
-                img = alphas_prev[index] * pred_x0 + dir_xt + noise[index]
+                noise = sigmas[index] * torch.randn(shape, device=device, dtype=torch.float32) * temperature
+                img = alphas_prev[index] * pred_x0 + dir_xt + noise
             img = img[:batch_size]
         img = 1. / self.scale_factor * img
         img = self.vae_model(img)
