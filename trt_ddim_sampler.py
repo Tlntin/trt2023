@@ -104,8 +104,7 @@ class TRT_DDIMSampler(object):
             dtype=torch.int32,
             device=device
         )
-        ddim_sampling_tensor = ddim_timesteps\
-            .unsqueeze(1).repeat(1, 2 * batch_size).view(-1)
+        ddim_sampling_tensor = ddim_timesteps.unsqueeze(1)
         # ddim sampling parameters
         alphas = self.alphas_cumprod[ddim_timesteps]
         alphas_prev = torch.cat(
@@ -126,11 +125,10 @@ class TRT_DDIMSampler(object):
 
         batch_size = shape[0]
         img = torch.randn(shape, device=device)
-        rand_noise = torch.rand(shape, device=device) * temperature
         # self.img.normal_()
         # self.rand_noise.random_()
         # becasuse seed, rand is pin, use unsqueeze(0) to auto boradcast
-        noise = sigmas.unsqueeze(1).unsqueeze(2).unsqueeze(3) * rand_noise * temperature
+        # noise = sigmas.unsqueeze(1).unsqueeze(2).unsqueeze(3) * rand_noise * temperature
         if guess_mode:
             # img = self.img
             control_scales = self.guess_control_scales * strength
@@ -141,26 +139,30 @@ class TRT_DDIMSampler(object):
                 cond_output = self.apply_model(
                     img,
                     hint=control,
-                    timestep=ddim_sampling_tensor[index * 2: index * 2 + 1],
+                    timestep=ddim_sampling_tensor[index],
                     context=batch_crossattn[:batch_size],
                     control_scales=control_scales,
                     shape_change=shape_change,
-                )[: batch_size]
-                uncond_output = self.run_engine(
-                    "unet_v2",
-                    feed_dict={
-                        "sample": img,
-                        "timestep": ddim_sampling_tensor[index * 2 + 1: index * 2 + 2],
-                        "context": batch_crossattn[batch_size:],
-                    }
-                )["latent"]
-                if self.do_summarize:
-                    cudart.cudaEventRecord(self.events[f'union_model_{index}-stop'], 0)
-                e_t = uncond_output + uncond_scale * (cond_output - uncond_output)
+                )
+                if uncond_scale == 1:
+                    e_t = cond_output
+                else:
+                    uncond_output = self.run_engine(
+                        "unet_v2",
+                        feed_dict={
+                            "sample": img,
+                            "timestep": ddim_sampling_tensor[index],
+                            "context": batch_crossattn[batch_size:],
+                        }
+                    )["latent"]
+                    if self.do_summarize:
+                        cudart.cudaEventRecord(self.events[f'union_model_{index}-stop'], 0)
+                    e_t = uncond_output + uncond_scale * (cond_output - uncond_output)
                 pred_x0 = (img - sqrt_one_minus_alphas[index] * e_t) / alphas[index]
                 # direction pointing to x_t
                 dir_xt = temp_di[index] * e_t
-                img = alphas_prev[index] * pred_x0 + dir_xt + noise[index]
+                noise = sigmas[index] * torch.randn(shape, device=device, dtype=torch.float32) * temperature
+                img = alphas_prev[index] * pred_x0 + dir_xt + noise
                 # 后续循环shape都是固定
                 shape_change = False
             return img
@@ -168,18 +170,20 @@ class TRT_DDIMSampler(object):
             control_scales = self.unguess_control_scales * strength
             img = img.repeat(2 * batch_size, 1, 1, 1)
             control = control.repeat(2 * batch_size, 1, 1, 1)
+            ddim_sampling_tensor = ddim_sampling_tensor.repeat(1, 2 * batch_size)
             for i in range(ddim_num_steps):
                 index = ddim_num_steps - i - 1
                 img = self.p_sample_ddim(
                     img,
                     hint=control,
-                    t=ddim_sampling_tensor[index * 2: index * 2 + 2],
+                    t=ddim_sampling_tensor[index],
                     context=batch_crossattn,
                     index=index,
                     alphas_at=alphas[index],
                     alphas_prev_at=alphas_prev[index],
                     sqrt_one_minus_alphas_at=sqrt_one_minus_alphas[index],
-                    noise_at=noise[index],
+                    sigma_at=sigmas[index],
+                    temperature=temperature,
                     temp_di_at=temp_di[index],
                     uncond_scale=uncond_scale,
                     control_scales=control_scales,
@@ -239,7 +243,8 @@ class TRT_DDIMSampler(object):
         alphas_at,
         alphas_prev_at,
         sqrt_one_minus_alphas_at,
-        noise_at,
+        sigma_at,
+        temperature,
         temp_di_at,
         uncond_scale,
         control_scales,
@@ -255,5 +260,6 @@ class TRT_DDIMSampler(object):
         pred_x0 = (x - sqrt_one_minus_alphas_at * e_t) / alphas_at
         # direction pointing to x_t
         dir_xt = temp_di_at * e_t
-        x_prev = alphas_prev_at * pred_x0 + dir_xt + noise_at
+        noise = sigma_at * torch.randn_like(x, device=self.device, dtype=torch.float32) * temperature
+        x_prev = alphas_prev_at * pred_x0 + dir_xt + noise
         return x_prev
