@@ -723,7 +723,7 @@ class hackathon():
             # guess mode很难校准，还是用原版步数
             ddim_num_steps = ddim_steps
         else:
-            ddim_num_steps = 10
+            ddim_num_steps = 11
         self.last_guess_mode = guess_mode
         with torch.no_grad():
             img = resize_image(HWC3(input_image), image_resolution)
