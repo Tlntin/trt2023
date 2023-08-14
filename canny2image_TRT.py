@@ -735,8 +735,7 @@ class hackathon():
             control = torch.from_numpy(detected_map.copy()).float().cuda() / 255.0
             if seed == -1:
                 seed = random.randint(0, 65535)
-            # seed_everything(seed)
-            seed_everything(2946901)
+            seed_everything(seed)
             if self.do_summarize:
                 cudart.cudaEventRecord(self.events['clip-start'], 0)
             text_list = [prompt + ', ' + a_prompt] * num_samples + \
